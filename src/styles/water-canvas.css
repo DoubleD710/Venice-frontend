@@ -1,0 +1,10 @@
+.water-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(115, 159, 171, 0.24), transparent 34%),
+    linear-gradient(145deg, #10181b 0%, #071013 52%, #14110f 100%);
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Venice</title>
+    <link rel="stylesheet" href="./styles/base.css">
+    <link rel="stylesheet" href="./styles/water-canvas.css">
+    <link rel="stylesheet" href="./styles/fusion-input.css">
+  </head>
+  <body>
+    <canvas class="water-canvas" data-water-canvas aria-hidden="true"></canvas>
+
+    <main class="app-shell">
+      <section class="fusion-box" data-fusion-box>
+        <div class="fusion-box__header">
+          <p class="eyebrow">Venice</p>
+          <button class="mode-toggle" type="button" data-mode-toggle aria-pressed="false">
+            Focus
+          </button>
+        </div>
+
+        <label class="fusion-box__label" for="venice-input">Local prompt</label>
+        <textarea
+          class="fusion-box__input"
+          id="venice-input"
+          data-fusion-input
+          rows="5"
+          placeholder="Ask Venice to think with the room."
+        ></textarea>
+      </section>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

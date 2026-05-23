@@ -1,0 +1,61 @@
+.fusion-box {
+  width: min(100%, 680px);
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-panel);
+  background: var(--color-panel);
+  backdrop-filter: blur(22px) saturate(130%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+}
+
+.fusion-box__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.fusion-box__label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.fusion-box__input {
+  width: 100%;
+  min-height: 150px;
+  resize: vertical;
+  color: var(--color-ink);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-panel);
+  background: rgba(3, 8, 11, 0.42);
+  padding: 16px;
+  outline: none;
+}
+
+.fusion-box__input:focus {
+  border-color: rgba(143, 215, 199, 0.65);
+  box-shadow: 0 0 0 3px rgba(143, 215, 199, 0.12);
+}
+
+.mode-toggle {
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.mode-toggle:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mode-toggle[aria-pressed="true"] {
+  border-color: rgba(143, 215, 199, 0.72);
+  background: rgba(143, 215, 199, 0.16);
+}
