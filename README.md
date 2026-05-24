@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Venice Frontend
 
 Venice is a cinematic local-first AI WebUI experiment built with plain HTML, CSS, and JavaScript.
@@ -29,3 +30,7 @@ Optional browser settings:
 ## Architecture Notes
 
 Keep modules readable and focused. Prefer canvas for atmospheric effects, keep DOM interactions small, and avoid abstractions until they remove real repetition or clarify ownership.
+=======
+# Venice-frontend
+A modular Venice.ai local webUI 
+>>>>>>> a3cd0a72a79b17a5e7fcef78e7258a59979d3b74
