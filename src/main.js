@@ -27,6 +27,10 @@ const debugState = {
   state: 'idle',
   tokenCount: 0,
   duration: '0.0s',
+  timeToFirstToken: '0.0s',
+  chunkCount: 0,
+  byteCount: 0,
+  malformedChunkCount: 0,
   fps: 0,
   rippleCount: 0,
   visualMode: document.documentElement.dataset.visualMode || 'silver',
@@ -184,6 +188,10 @@ document.addEventListener('venice:send', (event) => {
     state: 'streaming',
     tokenCount: 0,
     duration: '0.0s',
+    timeToFirstToken: '0.0s',
+    chunkCount: 0,
+    byteCount: 0,
+    malformedChunkCount: 0,
     endpointHost: 'Connecting'
   });
 
@@ -204,10 +212,24 @@ document.addEventListener('venice:send', (event) => {
         endpointHost: getEndpointHost(status.endpointUrl)
       });
     },
+    onValidation(validation) {
+      if (!validation.ok) {
+        responsePanel.setStatus(validation.errors[0]);
+      }
+    },
     onMetrics(metrics) {
       updateDebugOverlay({
         tokenCount: metrics.tokenCount,
         duration: formatDuration(metrics.duration)
+      });
+    },
+    onDiagnostics(diagnostics) {
+      updateDebugOverlay({
+        chunkCount: diagnostics.chunkCount,
+        byteCount: diagnostics.byteCount,
+        malformedChunkCount: diagnostics.malformedChunkCount,
+        timeToFirstToken: formatDuration(diagnostics.timeToFirstToken),
+        duration: formatDuration(diagnostics.duration)
       });
     },
     onToken(token) {
@@ -269,6 +291,10 @@ document.addEventListener('venice:clear-conversation', () => {
     state: 'idle',
     tokenCount: 0,
     duration: '0.0s',
+    timeToFirstToken: '0.0s',
+    chunkCount: 0,
+    byteCount: 0,
+    malformedChunkCount: 0,
     endpointHost: 'Not connected'
   });
 });

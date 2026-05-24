@@ -2,6 +2,7 @@ import { sendCloudPrompt } from './cloud-llm.js';
 import { createLocalLlm } from './local-llm.js';
 import { getDefaultProvider, getProvider, isCloudProvider } from './provider-registry.js';
 import { getProviderCredential, loadProviderSettings } from './provider-settings.js';
+import { getProviderValidationMessage, validateProviderRuntime } from './provider-validation.js';
 import { createRippleEmitter } from './ripple-emitter.js';
 import { REQUEST_STATES } from './request-state.js';
 
@@ -91,7 +92,16 @@ export function createTokenStream(rippleTarget) {
     handlers.onToolCall?.(toolCall);
   }
 
+  function handleDiagnostics(diagnostics) {
+    handlers.onDiagnostics?.(diagnostics);
+  }
+
   function handleProviderEvent(event, runtime) {
+    if (event.type === 'diagnostic') {
+      handleDiagnostics(event.diagnostics);
+      return;
+    }
+
     if (event.type === 'token') {
       handleToken(event.text);
       return;
@@ -150,6 +160,7 @@ export function createTokenStream(rippleTarget) {
   localLlm.onToken(handleToken);
   localLlm.onStatus(handleStatus);
   localLlm.onToolCall(handleToolCall);
+  localLlm.onDiagnostics(handleDiagnostics);
 
   async function startCloud(prompt, runtime, requestId) {
     cloudAbortController = new AbortController();
@@ -203,6 +214,27 @@ export function createTokenStream(rippleTarget) {
     const requestId = activeRequestId;
     const runtime = getRuntimeProviderSettings();
     activeRuntime = runtime;
+    const validation = validateProviderRuntime({
+      provider: runtime.provider,
+      model: runtime.model,
+      endpoint: runtime.endpoint,
+      apiKey: runtime.apiKey
+    });
+
+    handlers.onValidation?.(validation);
+
+    if (!validation.ok) {
+      handleStatus({
+        state: REQUEST_STATES.error,
+        message: getProviderValidationMessage(validation),
+        provider: runtime.provider.label,
+        providerId: runtime.provider.id,
+        providerType: runtime.provider.type,
+        endpointUrl: runtime.endpoint,
+        model: runtime.model
+      });
+      return Promise.resolve();
+    }
 
     if (isCloudProvider(runtime.provider.id)) {
       return startCloud(prompt, runtime, requestId);

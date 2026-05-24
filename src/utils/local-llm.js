@@ -1,6 +1,7 @@
 import { getDefaultProvider, getProvider } from './provider-registry.js';
 import { createRequestState, REQUEST_STATES } from './request-state.js';
 import { createStreamNormalizer } from './stream-normalizer.js';
+import { createStreamDiagnostics } from './stream-diagnostics.js';
 
 function createRequestBody(provider, prompt, model) {
   if (provider.id === 'ollama') {
@@ -29,6 +30,7 @@ export function createLocalLlm() {
   const tokenListeners = new Set();
   const statusListeners = new Set();
   const toolCallListeners = new Set();
+  const diagnosticsListeners = new Set();
   const requestState = createRequestState();
   let abortController = null;
   let activeRequestId = 0;
@@ -70,6 +72,14 @@ export function createLocalLlm() {
     toolCallListeners.forEach((listener) => listener(toolCall));
   }
 
+  function emitDiagnostics(diagnostics, requestId = activeRequestId) {
+    if (requestId !== activeRequestId) {
+      return;
+    }
+
+    diagnosticsListeners.forEach((listener) => listener(diagnostics));
+  }
+
   function abortActiveRequest() {
     if (abortController) {
       abortController.abort();
@@ -81,6 +91,7 @@ export function createLocalLlm() {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const normalizer = createStreamNormalizer(provider.id);
+    const diagnostics = createStreamDiagnostics();
 
     while (true) {
       const { value, done } = await reader.read();
@@ -89,9 +100,14 @@ export function createLocalLlm() {
         break;
       }
 
-      const events = normalizer.push(decoder.decode(value, { stream: true }));
+      const rawChunk = decoder.decode(value, { stream: true });
+      emitDiagnostics(diagnostics.recordChunk(rawChunk), requestId);
+
+      const events = normalizer.push(rawChunk);
 
       for (const event of events) {
+        emitDiagnostics(diagnostics.recordEvent(event), requestId);
+
         if (event.type === 'token') {
           emitToken(event.text, requestId);
         }
@@ -111,6 +127,8 @@ export function createLocalLlm() {
     }
 
     for (const event of normalizer.flush()) {
+      emitDiagnostics(diagnostics.recordEvent(event), requestId);
+
       if (event.type === 'token') {
         emitToken(event.text, requestId);
       }
@@ -225,12 +243,21 @@ export function createLocalLlm() {
     };
   }
 
+  function onDiagnostics(callback) {
+    diagnosticsListeners.add(callback);
+
+    return () => {
+      diagnosticsListeners.delete(callback);
+    };
+  }
+
   return {
     sendPrompt,
     stopGeneration,
     onToken,
     onStatus,
-    onToolCall
+    onToolCall,
+    onDiagnostics
   };
 }
 
@@ -241,3 +268,4 @@ export const stopGeneration = localLlm.stopGeneration;
 export const onToken = localLlm.onToken;
 export const onStatus = localLlm.onStatus;
 export const onToolCall = localLlm.onToolCall;
+export const onDiagnostics = localLlm.onDiagnostics;

@@ -6,6 +6,7 @@ import {
   saveProviderSettings,
   setProviderCredential
 } from '../utils/provider-settings.js';
+import { getProviderValidationMessage, validateProviderRuntime } from '../utils/provider-validation.js';
 
 function getSummary(providerId, settings) {
   const provider = getProvider(providerId);
@@ -73,12 +74,20 @@ export function initProviderSettingsPanel(element) {
 
     const needsKey = isCloudProvider(provider.id);
     const savedKey = getProviderCredential(provider.id);
+    const validation = validateProviderRuntime({
+      provider,
+      model: modelInput.value,
+      endpoint: endpointInput.value,
+      apiKey: savedKey
+    });
 
     apiKeyGroup.hidden = !needsKey;
     clearKeyButton.hidden = !needsKey;
     apiKeyInput.value = '';
     apiKeyInput.placeholder = needsKey ? 'Paste API key to replace saved key' : '';
-    apiKeyStatus.textContent = needsKey ? maskApiKey(savedKey) : 'Local provider';
+    apiKeyStatus.textContent = needsKey && savedKey
+      ? maskApiKey(savedKey)
+      : getProviderValidationMessage(validation);
   }
 
   function save() {

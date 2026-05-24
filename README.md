@@ -37,8 +37,10 @@ Provider architecture is split away from UI code:
 
 - `provider-registry.js` defines local and cloud provider capabilities.
 - `provider-settings.js` owns localStorage-backed provider settings and credentials.
+- `provider-validation.js` performs preflight checks before any provider request.
 - `local-llm.js` and `cloud-llm.js` own fetch transport.
 - `stream-normalizer.js` turns provider-specific stream chunks into Venice events.
+- `stream-diagnostics.js` tracks safe stream counters and timing for observability.
 - `tool-call-normalizer.js` parses tool calls but does not execute them yet.
 
 Tool calling is intentionally parse-only in this phase. Future safe tool execution should live behind explicit allowlists and user-controlled execution boundaries.

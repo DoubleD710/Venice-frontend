@@ -1,5 +1,6 @@
 import { getProvider, isCloudProvider } from './provider-registry.js';
 import { createStreamNormalizer } from './stream-normalizer.js';
+import { createStreamDiagnostics } from './stream-diagnostics.js';
 
 function buildMessages(prompt, messages = []) {
   if (Array.isArray(messages) && messages.length > 0) {
@@ -26,6 +27,7 @@ export async function* normalizeCloudStream(providerId, response) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const normalizer = createStreamNormalizer(providerId);
+  const diagnostics = createStreamDiagnostics();
 
   try {
     while (true) {
@@ -36,20 +38,38 @@ export async function* normalizeCloudStream(providerId, response) {
       }
 
       const chunk = decoder.decode(value, { stream: true });
+      yield {
+        type: 'diagnostic',
+        diagnostics: diagnostics.recordChunk(chunk)
+      };
 
       for (const event of normalizer.push(chunk)) {
+        yield {
+          type: 'diagnostic',
+          diagnostics: diagnostics.recordEvent(event)
+        };
         yield event;
       }
     }
 
     for (const event of normalizer.flush()) {
+      yield {
+        type: 'diagnostic',
+        diagnostics: diagnostics.recordEvent(event)
+      };
       yield event;
     }
   } catch (error) {
-    yield {
+    const event = {
       type: 'error',
       error: error.name === 'AbortError' ? 'Stopped' : error.message
     };
+
+    yield {
+      type: 'diagnostic',
+      diagnostics: diagnostics.recordEvent(event)
+    };
+    yield event;
   }
 }
 

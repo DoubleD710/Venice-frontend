@@ -110,6 +110,22 @@ function normalizeLine(providerId, line) {
 
 export function createStreamNormalizer(providerId) {
   let buffer = '';
+  let hasCompleted = false;
+
+  function dedupeComplete(events) {
+    return events.filter((event) => {
+      if (event.type !== 'complete') {
+        return true;
+      }
+
+      if (hasCompleted) {
+        return false;
+      }
+
+      hasCompleted = true;
+      return true;
+    });
+  }
 
   function push(rawChunk) {
     buffer += rawChunk || '';
@@ -117,7 +133,7 @@ export function createStreamNormalizer(providerId) {
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
 
-    return lines.flatMap((line) => normalizeLine(providerId, line));
+    return dedupeComplete(lines.flatMap((line) => normalizeLine(providerId, line)));
   }
 
   function flush() {
@@ -126,7 +142,7 @@ export function createStreamNormalizer(providerId) {
       return [];
     }
 
-    const events = normalizeLine(providerId, buffer);
+    const events = dedupeComplete(normalizeLine(providerId, buffer));
     buffer = '';
     return events;
   }
