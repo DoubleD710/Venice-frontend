@@ -12,23 +12,36 @@
     <canvas class="water-canvas" data-water-canvas aria-hidden="true"></canvas>
 
     <main class="app-shell">
-      <section class="fusion-box" data-fusion-box>
-        <div class="fusion-box__header">
-          <p class="eyebrow">Venice</p>
-          <button class="mode-toggle" type="button" data-mode-toggle aria-pressed="false">
-            Focus
-          </button>
-        </div>
+      <div class="app-stack">
+        <section class="fusion-box" data-fusion-box>
+          <div class="fusion-box__header">
+            <p class="eyebrow">Venice</p>
+            <button class="mode-toggle" type="button" data-mode-toggle aria-pressed="false">
+              Focus
+            </button>
+          </div>
 
-        <label class="fusion-box__label" for="venice-input">Local prompt</label>
-        <textarea
-          class="fusion-box__input"
-          id="venice-input"
-          data-fusion-input
-          rows="5"
-          placeholder="Ask Venice to think with the room."
-        ></textarea>
-      </section>
+          <label class="fusion-box__label" for="venice-input">Local prompt</label>
+          <textarea
+            class="fusion-box__input"
+            id="venice-input"
+            data-fusion-input
+            rows="5"
+            placeholder="Ask Venice to think with the room."
+          ></textarea>
+        </section>
+
+        <section class="response-panel" data-response-panel aria-live="polite">
+          <div class="response-panel__header">
+            <p class="eyebrow">Response</p>
+            <div class="status-bar" data-status-bar>Idle</div>
+            <button class="response-panel__stop" type="button" data-stop-generation disabled>
+              Stop
+            </button>
+          </div>
+          <div class="response-panel__output" data-response-output></div>
+        </section>
+      </div>
     </main>
 
     <script type="module" src="./main.js"></script>

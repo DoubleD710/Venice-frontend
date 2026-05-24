@@ -1,16 +1,12 @@
 import { createRippleEmitter } from '../utils/ripple-emitter.js';
 
-// UI-facing ripple hook; rendering can move to canvas as the effect grows.
-export function initParticleRipple(element) {
+// Small helper for modules that need to emit a one-off ripple.
+export function emitParticleRipple(element, x, y, strength = 1) {
   if (!element) {
     return null;
   }
 
   const rippleEmitter = createRippleEmitter(element);
-
-  element.addEventListener('pointerdown', (event) => {
-    rippleEmitter.emit(event.clientX, event.clientY, 1);
-  });
-
+  rippleEmitter.emit(x, y, strength);
   return rippleEmitter;
 }
