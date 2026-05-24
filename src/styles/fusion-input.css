@@ -6,6 +6,7 @@
   background: var(--color-panel);
   backdrop-filter: blur(22px) saturate(130%);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+  transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .fusion-box__header {
@@ -36,8 +37,8 @@
 }
 
 .fusion-box__input:focus {
-  border-color: rgba(143, 215, 199, 0.65);
-  box-shadow: 0 0 0 3px rgba(143, 215, 199, 0.12);
+  border-color: var(--color-accent-border);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
 .mode-toggle {
@@ -56,6 +57,6 @@
 }
 
 .mode-toggle[aria-pressed="true"] {
-  border-color: rgba(143, 215, 199, 0.72);
-  background: rgba(143, 215, 199, 0.16);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
 }

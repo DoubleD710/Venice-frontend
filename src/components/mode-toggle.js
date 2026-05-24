@@ -1,17 +1,26 @@
-import { setCssVar } from '../utils/css-vars.js';
-
-// Small state toggle for future mode-aware visuals.
+// Small visual mode hook for silver and gold surface states.
 export function initModeToggle(button) {
   if (!button) {
     return null;
   }
 
+  const root = document.documentElement;
+
+  function setMode(mode) {
+    root.dataset.visualMode = mode;
+    button.setAttribute('aria-pressed', String(mode === 'gold'));
+    button.textContent = mode === 'gold' ? 'Gold' : 'Silver';
+  }
+
+  setMode(root.dataset.visualMode || 'silver');
+
   button.addEventListener('click', () => {
-    const isActive = button.getAttribute('aria-pressed') === 'true';
-    button.setAttribute('aria-pressed', String(!isActive));
-    button.textContent = isActive ? 'Focus' : 'Drift';
-    setCssVar('--color-accent', isActive ? '#8fd7c7' : '#d5b16f');
+    const nextMode = root.dataset.visualMode === 'gold' ? 'silver' : 'gold';
+    setMode(nextMode);
   });
 
-  return button;
+  return {
+    button,
+    setMode
+  };
 }

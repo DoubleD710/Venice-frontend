@@ -3,10 +3,26 @@
   --color-muted: #a8b3bb;
   --color-panel: rgba(18, 24, 30, 0.58);
   --color-line: rgba(255, 255, 255, 0.16);
-  --color-accent: #8fd7c7;
+  --color-accent: #cdd7dc;
+  --color-accent-border: rgba(205, 215, 220, 0.72);
+  --color-accent-soft: rgba(205, 215, 220, 0.16);
   --space-page: clamp(24px, 6vw, 72px);
   --radius-panel: 8px;
   --font-main: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-visual-mode="gold"] {
+  --color-accent: #d5b16f;
+  --color-accent-border: rgba(213, 177, 111, 0.72);
+  --color-accent-soft: rgba(213, 177, 111, 0.18);
+  --color-line: rgba(245, 215, 155, 0.22);
+}
+
+:root[data-visual-mode="silver"] {
+  --color-accent: #cdd7dc;
+  --color-accent-border: rgba(205, 215, 220, 0.72);
+  --color-accent-soft: rgba(205, 215, 220, 0.16);
+  --color-line: rgba(255, 255, 255, 0.16);
 }
 
 * {
