@@ -10,6 +10,9 @@ export function initModeToggle(button) {
     root.dataset.visualMode = mode;
     button.setAttribute('aria-pressed', String(mode === 'gold'));
     button.textContent = mode === 'gold' ? 'Gold' : 'Silver';
+    root.dispatchEvent(new CustomEvent('venice:visual-mode', {
+      detail: { mode }
+    }));
   }
 
   setMode(root.dataset.visualMode || 'silver');

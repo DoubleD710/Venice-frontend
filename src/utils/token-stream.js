@@ -1,19 +1,21 @@
+import { createLocalLlm } from './local-llm.js';
 import { createRippleEmitter } from './ripple-emitter.js';
+import { REQUEST_STATES } from './request-state.js';
 
-// Simulates response token flow until llama.cpp fetch streaming is wired in.
+// Bridges the local LLM transport to UI-facing stream events.
 export function createTokenStream(rippleTarget) {
   const rippleEmitter = createRippleEmitter(rippleTarget || document);
-  let timer = 0;
-  let isStreaming = false;
+  const localLlm = createLocalLlm();
+  let handlers = {};
+  let tokenCount = 0;
+  let startedAt = 0;
 
-  function buildReply(prompt) {
-    return [
-      'I hear the shape of the request: ',
-      prompt,
-      '. ',
-      'For now this is a local simulated stream, ',
-      'paced like a model response and ready for a future llama.cpp fetch source.'
-    ];
+  function getDuration() {
+    if (!startedAt) {
+      return 0;
+    }
+
+    return performance.now() - startedAt;
   }
 
   function emitTokenRipple() {
@@ -31,42 +33,48 @@ export function createTokenStream(rippleTarget) {
     );
   }
 
-  function stop(onStop) {
-    if (!isStreaming) {
-      return;
+  localLlm.onToken((token) => {
+    tokenCount += 1;
+    handlers.onToken?.(token);
+    handlers.onMetrics?.({
+      tokenCount,
+      duration: getDuration()
+    });
+    emitTokenRipple();
+  });
+
+  localLlm.onStatus((status) => {
+    const streamStatus = {
+      ...status,
+      tokenCount,
+      duration: getDuration()
+    };
+
+    handlers.onStatus?.(streamStatus);
+
+    if (status.state === REQUEST_STATES.complete) {
+      handlers.onDone?.(streamStatus);
     }
 
-    window.clearTimeout(timer);
-    isStreaming = false;
-    onStop?.();
+    if (status.state === REQUEST_STATES.stopped) {
+      handlers.onStop?.(streamStatus);
+    }
+
+    if (status.state === REQUEST_STATES.error) {
+      handlers.onError?.(streamStatus);
+    }
+  });
+
+  function start(prompt, nextHandlers = {}) {
+    handlers = nextHandlers;
+    tokenCount = 0;
+    startedAt = performance.now();
+    handlers.onStart?.();
+    return localLlm.sendPrompt(prompt);
   }
 
-  function start(prompt, handlers = {}) {
-    stop();
-
-    const tokens = buildReply(prompt);
-    let index = 0;
-    isStreaming = true;
-    handlers.onStart?.();
-
-    function streamNext() {
-      if (!isStreaming) {
-        return;
-      }
-
-      if (index >= tokens.length) {
-        isStreaming = false;
-        handlers.onDone?.();
-        return;
-      }
-
-      handlers.onToken?.(tokens[index]);
-      emitTokenRipple();
-      index += 1;
-      timer = window.setTimeout(streamNext, 170);
-    }
-
-    streamNext();
+  function stop() {
+    return localLlm.stopGeneration();
   }
 
   return {

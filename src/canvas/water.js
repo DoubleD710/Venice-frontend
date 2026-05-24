@@ -4,7 +4,11 @@ export function createWaterCanvas(canvas) {
   let animationFrame = 0;
   let lastTime = 0;
   let isRunning = false;
+  let frameCount = 0;
+  let lastStatsTime = null;
+  let fps = 0;
   const ripples = [];
+  const statsListeners = new Set();
   const maxRipples = 24;
 
   const waves = [
@@ -132,6 +136,35 @@ export function createWaterCanvas(canvas) {
     }
   }
 
+  function notifyStats() {
+    const stats = {
+      fps: Math.round(fps),
+      rippleCount: ripples.length
+    };
+
+    statsListeners.forEach((listener) => listener(stats));
+  }
+
+  function updateStats(time) {
+    frameCount += 1;
+
+    if (lastStatsTime === null) {
+      lastStatsTime = time;
+      return;
+    }
+
+    const elapsed = time - lastStatsTime;
+
+    if (elapsed < 500) {
+      return;
+    }
+
+    fps = frameCount / (elapsed / 1000);
+    frameCount = 0;
+    lastStatsTime = time;
+    notifyStats();
+  }
+
   function draw(time = 0) {
     if (!context) {
       return;
@@ -141,6 +174,7 @@ export function createWaterCanvas(canvas) {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
+    updateStats(time);
     clearFrame(width, height);
     drawAtmosphere(width, height, time);
     drawLightVeil(width, height, time);
@@ -178,6 +212,18 @@ export function createWaterCanvas(canvas) {
         strength: Math.max(0.2, Math.min(strength, 2)),
         startedAt: lastTime || performance.now()
       });
+      notifyStats();
+    },
+    onStats(callback) {
+      statsListeners.add(callback);
+      callback({
+        fps: Math.round(fps),
+        rippleCount: ripples.length
+      });
+
+      return () => {
+        statsListeners.delete(callback);
+      };
     }
   };
 }
