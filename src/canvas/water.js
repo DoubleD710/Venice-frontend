@@ -1,14 +1,16 @@
-// Canvas owner for atmospheric water rendering.
+// Canvas owner for Venice's layered atmospheric water rendering.
 export function createWaterCanvas(canvas) {
   const context = canvas ? canvas.getContext('2d') : null;
   let animationFrame = 0;
   let lastTime = 0;
+  let isRunning = false;
   const ripples = [];
+  const maxRipples = 24;
 
   const waves = [
-    { speed: 0.0007, height: 18, length: 0.006, alpha: 0.08, y: 0.48 },
-    { speed: 0.001, height: 26, length: 0.004, alpha: 0.055, y: 0.56 },
-    { speed: 0.0014, height: 12, length: 0.009, alpha: 0.045, y: 0.38 }
+    { speed: 0.00055, height: 16, length: 0.005, alpha: 0.07, y: 0.42 },
+    { speed: 0.00085, height: 24, length: 0.004, alpha: 0.055, y: 0.54 },
+    { speed: 0.0012, height: 12, length: 0.008, alpha: 0.045, y: 0.66 }
   ];
 
   function resize() {
@@ -22,6 +24,10 @@ export function createWaterCanvas(canvas) {
     canvas.style.width = `${window.innerWidth}px`;
     canvas.style.height = `${window.innerHeight}px`;
     context.setTransform(scale, 0, 0, scale, 0, 0);
+  }
+
+  function clearFrame(width, height) {
+    context.clearRect(0, 0, width, height);
   }
 
   function drawAtmosphere(width, height, time) {
@@ -45,6 +51,21 @@ export function createWaterCanvas(canvas) {
     context.fill();
   }
 
+  function drawLightVeil(width, height, time) {
+    const drift = Math.sin(time * 0.00045) * width * 0.04;
+    const gradient = context.createLinearGradient(0, height * 0.18, width, height * 0.88);
+
+    gradient.addColorStop(0, 'rgba(244, 240, 234, 0)');
+    gradient.addColorStop(0.52, 'rgba(244, 240, 234, 0.045)');
+    gradient.addColorStop(1, 'rgba(244, 240, 234, 0)');
+
+    context.save();
+    context.translate(drift, 0);
+    context.fillStyle = gradient;
+    context.fillRect(-width * 0.1, 0, width * 1.2, height);
+    context.restore();
+  }
+
   function drawWaveLayer(width, height, time, wave) {
     const baseY = height * wave.y;
 
@@ -63,6 +84,29 @@ export function createWaterCanvas(canvas) {
     context.closePath();
     context.fillStyle = `rgba(143, 215, 199, ${wave.alpha})`;
     context.fill();
+  }
+
+  function drawWaveHighlights(width, height, time) {
+    context.strokeStyle = 'rgba(244, 240, 234, 0.075)';
+    context.lineWidth = 1;
+
+    for (let row = 0; row < 3; row += 1) {
+      const baseY = height * (0.44 + row * 0.11);
+
+      context.beginPath();
+
+      for (let x = 0; x <= width; x += 24) {
+        const y = baseY + Math.sin(x * 0.01 + time * 0.001 + row) * 8;
+
+        if (x === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+
+      context.stroke();
+    }
   }
 
   function drawRipples(time) {
@@ -97,9 +141,11 @@ export function createWaterCanvas(canvas) {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    context.clearRect(0, 0, width, height);
+    clearFrame(width, height);
     drawAtmosphere(width, height, time);
+    drawLightVeil(width, height, time);
     waves.forEach((wave) => drawWaveLayer(width, height, time, wave));
+    drawWaveHighlights(width, height, time);
     drawRipples(time);
 
     animationFrame = window.requestAnimationFrame(draw);
@@ -107,19 +153,25 @@ export function createWaterCanvas(canvas) {
 
   return {
     start() {
-      if (!canvas || !context) {
+      if (!canvas || !context || isRunning) {
         return;
       }
 
+      isRunning = true;
       resize();
       window.addEventListener('resize', resize);
       animationFrame = window.requestAnimationFrame(draw);
     },
     stop() {
+      isRunning = false;
       window.cancelAnimationFrame(animationFrame);
       window.removeEventListener('resize', resize);
     },
     ripple(x, y, strength = 1) {
+      if (ripples.length >= maxRipples) {
+        ripples.shift();
+      }
+
       ripples.push({
         x,
         y,
