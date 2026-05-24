@@ -10,7 +10,12 @@ export function initFusionBox(element) {
   const rippleEmitter = createRippleEmitter(element);
 
   if (!input) {
-    return { element, input: null };
+    return {
+      element,
+      input: null,
+      setPrompt() {},
+      send() {}
+    };
   }
 
   function emitCenterRipple(strength = 1) {
@@ -56,6 +61,9 @@ export function initFusionBox(element) {
   return {
     element,
     input,
+    setPrompt(prompt) {
+      input.value = prompt || '';
+    },
     send: sendPrompt
   };
 }

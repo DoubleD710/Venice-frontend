@@ -1,92 +1,53 @@
+import { getDefaultProvider, getProvider } from './provider-registry.js';
 import { createRequestState, REQUEST_STATES } from './request-state.js';
+import { createStreamNormalizer } from './stream-normalizer.js';
 
-const DEFAULT_OLLAMA_MODEL = 'llama3.2';
-
-function getLocalSetting(name, fallback) {
-  try {
-    return window.localStorage.getItem(name) || fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function createEndpoints() {
-  const ollamaModel = getLocalSetting('venice:ollama-model', DEFAULT_OLLAMA_MODEL);
-
-  return [
-    {
-      name: 'Ollama',
-      url: getLocalSetting('venice:ollama-url', 'http://localhost:11434/api/generate'),
-      body(prompt) {
-        return {
-          model: ollamaModel,
-          prompt,
-          stream: true
-        };
-      }
-    },
-    {
-      name: 'llama.cpp',
-      url: getLocalSetting('venice:llama-url', 'http://localhost:8080/completion'),
-      body(prompt) {
-        return {
-          prompt,
-          stream: true,
-          n_predict: 512
-        };
-      }
-    }
-  ];
-}
-
-function parseStreamLine(line) {
-  const text = line.trim();
-
-  if (!text) {
-    return null;
-  }
-
-  if (text.startsWith(':') || text.startsWith('event:')) {
-    return null;
-  }
-
-  const payload = text.startsWith('data:') ? text.slice(5).trim() : text;
-
-  if (!payload || payload === '[DONE]') {
-    return { done: true, token: '' };
-  }
-
-  const data = JSON.parse(payload);
-
-  if (data.error) {
-    throw new Error(data.error);
+function createRequestBody(provider, prompt, model) {
+  if (provider.id === 'ollama') {
+    return {
+      model,
+      prompt,
+      stream: true
+    };
   }
 
   return {
-    done: Boolean(data.done || data.stop || data.stopped || data.choices?.[0]?.finish_reason),
-    token: data.response || data.content || data.choices?.[0]?.delta?.content || data.choices?.[0]?.text || ''
+    prompt,
+    stream: true,
+    n_predict: 512
   };
+}
+
+function getLocalProvider(providerId) {
+  const provider = getProvider(providerId) || getDefaultProvider();
+
+  return provider.type === 'local' ? provider : getDefaultProvider();
 }
 
 // Isolates local fetch streaming from the UI.
 export function createLocalLlm() {
   const tokenListeners = new Set();
   const statusListeners = new Set();
+  const toolCallListeners = new Set();
   const requestState = createRequestState();
   let abortController = null;
   let activeRequestId = 0;
   let currentEndpoint = null;
 
-  function emitStatus(state, message = '', requestId = activeRequestId, endpoint = null) {
+  function emitStatus(state, message = '', requestId = activeRequestId, provider = null, endpointUrl = '', model = '') {
     if (requestId !== activeRequestId) {
       return;
     }
 
+    const activeProvider = provider || getDefaultProvider();
     const status = {
       state,
       message,
-      provider: endpoint?.name || 'None',
-      endpointUrl: endpoint?.url || 'Not connected'
+      provider: activeProvider.label,
+      providerId: activeProvider.id,
+      providerType: activeProvider.type,
+      endpointUrl,
+      model
     };
 
     requestState.setState(state, message);
@@ -101,6 +62,14 @@ export function createLocalLlm() {
     tokenListeners.forEach((listener) => listener(token));
   }
 
+  function emitToolCall(toolCall, requestId = activeRequestId) {
+    if (!toolCall || requestId !== activeRequestId) {
+      return;
+    }
+
+    toolCallListeners.forEach((listener) => listener(toolCall));
+  }
+
   function abortActiveRequest() {
     if (abortController) {
       abortController.abort();
@@ -108,10 +77,10 @@ export function createLocalLlm() {
     }
   }
 
-  async function readResponseStream(response, requestId) {
+  async function readResponseStream(response, provider, requestId) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
+    const normalizer = createStreamNormalizer(provider.id);
 
     while (true) {
       const { value, done } = await reader.read();
@@ -120,96 +89,96 @@ export function createLocalLlm() {
         break;
       }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      const events = normalizer.push(decoder.decode(value, { stream: true }));
 
-      for (const line of lines) {
-        const chunk = parseStreamLine(line);
-
-        if (!chunk) {
-          continue;
+      for (const event of events) {
+        if (event.type === 'token') {
+          emitToken(event.text, requestId);
         }
 
-        emitToken(chunk.token, requestId);
+        if (event.type === 'tool_call') {
+          emitToolCall(event.toolCall, requestId);
+        }
 
-        if (chunk.done) {
-          return;
+        if (event.type === 'error') {
+          throw new Error(event.error);
+        }
+
+        if (event.type === 'complete') {
+          return event.usage;
         }
       }
     }
 
-    if (buffer.trim()) {
-      const chunk = parseStreamLine(buffer);
-      emitToken(chunk?.token, requestId);
-    }
-  }
+    for (const event of normalizer.flush()) {
+      if (event.type === 'token') {
+        emitToken(event.text, requestId);
+      }
 
-  async function tryEndpoint(endpoint, prompt, controller, requestId) {
-    currentEndpoint = endpoint;
-    emitStatus(REQUEST_STATES.streaming, `Connecting to ${endpoint.name}`, requestId, endpoint);
+      if (event.type === 'tool_call') {
+        emitToolCall(event.toolCall, requestId);
+      }
 
-    const response = await fetch(endpoint.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(endpoint.body(prompt)),
-      signal: controller.signal
-    });
-
-    if (!response.ok || !response.body) {
-      throw new Error(`${endpoint.name} returned ${response.status}`);
+      if (event.type === 'error') {
+        throw new Error(event.error);
+      }
     }
 
-    emitStatus(REQUEST_STATES.streaming, `Streaming from ${endpoint.name}`, requestId, endpoint);
-    await readResponseStream(response, requestId);
+    return null;
   }
 
-  async function sendPrompt(prompt) {
+  async function sendPrompt(prompt, options = {}) {
     abortActiveRequest();
 
     activeRequestId += 1;
     const requestId = activeRequestId;
+    const provider = getLocalProvider(options.providerId);
+    const model = options.model || provider.defaultModel;
+    const endpointUrl = options.endpoint || provider.defaultEndpoint;
     const controller = new AbortController();
     abortController = controller;
-    const endpoints = createEndpoints();
-    let lastError = null;
-    let lastEndpoint = null;
+    currentEndpoint = { provider, endpointUrl, model };
 
-    for (const endpoint of endpoints) {
-      try {
-        lastEndpoint = endpoint;
-        await tryEndpoint(endpoint, prompt, controller, requestId);
+    try {
+      emitStatus(REQUEST_STATES.streaming, `Connecting to ${provider.label}`, requestId, provider, endpointUrl, model);
 
-        if (requestId === activeRequestId) {
-          abortController = null;
-          currentEndpoint = null;
-        }
+      const response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(createRequestBody(provider, prompt, model)),
+        signal: controller.signal
+      });
 
-        emitStatus(REQUEST_STATES.complete, 'Complete', requestId, endpoint);
-        return;
-      } catch (error) {
-        if (error.name === 'AbortError') {
-          emitStatus(REQUEST_STATES.stopped, 'Stopped', requestId, endpoint);
-          return;
-        }
-
-        lastError = error;
+      if (!response.ok || !response.body) {
+        throw new Error(`${provider.label} returned ${response.status}`);
       }
-    }
 
-    if (requestId === activeRequestId) {
-      abortController = null;
-      currentEndpoint = null;
-    }
+      emitStatus(REQUEST_STATES.streaming, `Streaming from ${provider.label}`, requestId, provider, endpointUrl, model);
+      const usage = await readResponseStream(response, provider, requestId);
 
-    emitStatus(
-      REQUEST_STATES.error,
-      `Could not reach Ollama or llama.cpp. ${lastError?.message || 'Check your local server.'}`,
-      requestId,
-      lastEndpoint
-    );
+      if (requestId === activeRequestId) {
+        abortController = null;
+        currentEndpoint = null;
+      }
+
+      emitStatus(REQUEST_STATES.complete, 'Complete', requestId, provider, endpointUrl, model);
+      return usage;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        emitStatus(REQUEST_STATES.stopped, 'Stopped', requestId, provider, endpointUrl, model);
+        return null;
+      }
+
+      if (requestId === activeRequestId) {
+        abortController = null;
+        currentEndpoint = null;
+      }
+
+      emitStatus(REQUEST_STATES.error, error.message, requestId, provider, endpointUrl, model);
+      return null;
+    }
   }
 
   function stopGeneration(emitStopped = true) {
@@ -218,7 +187,14 @@ export function createLocalLlm() {
     abortActiveRequest();
 
     if (emitStopped) {
-      emitStatus(REQUEST_STATES.stopped, 'Stopped', requestId, stoppedEndpoint);
+      emitStatus(
+        REQUEST_STATES.stopped,
+        'Stopped',
+        requestId,
+        stoppedEndpoint?.provider,
+        stoppedEndpoint?.endpointUrl,
+        stoppedEndpoint?.model
+      );
     }
 
     currentEndpoint = null;
@@ -241,11 +217,20 @@ export function createLocalLlm() {
     };
   }
 
+  function onToolCall(callback) {
+    toolCallListeners.add(callback);
+
+    return () => {
+      toolCallListeners.delete(callback);
+    };
+  }
+
   return {
     sendPrompt,
     stopGeneration,
     onToken,
-    onStatus
+    onStatus,
+    onToolCall
   };
 }
 
@@ -255,3 +240,4 @@ export const sendPrompt = localLlm.sendPrompt;
 export const stopGeneration = localLlm.stopGeneration;
 export const onToken = localLlm.onToken;
 export const onStatus = localLlm.onStatus;
+export const onToolCall = localLlm.onToolCall;

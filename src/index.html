@@ -29,15 +29,46 @@
             rows="5"
             placeholder="Ask Venice to think with the room."
           ></textarea>
+
+          <section class="provider-settings" data-provider-settings>
+            <div class="provider-settings__grid">
+              <label>
+                Provider
+                <select data-provider-select></select>
+              </label>
+              <label>
+                Model
+                <input type="text" data-provider-model autocomplete="off">
+              </label>
+              <label>
+                Endpoint
+                <input type="url" data-provider-endpoint autocomplete="off">
+              </label>
+              <label data-api-key-group>
+                API key
+                <input type="password" data-provider-api-key autocomplete="off">
+              </label>
+            </div>
+            <div class="provider-settings__actions">
+              <span class="provider-settings__key-status" data-api-key-status>No key saved</span>
+              <button type="button" data-clear-provider-key>Clear key</button>
+              <button type="button" data-save-provider-settings>Save settings</button>
+            </div>
+          </section>
         </section>
 
         <section class="response-panel" data-response-panel aria-live="polite">
           <div class="response-panel__header">
             <p class="eyebrow">Response</p>
             <div class="status-bar" data-status-bar>Idle</div>
-            <button class="response-panel__stop" type="button" data-stop-generation disabled>
-              Stop
-            </button>
+            <div class="response-panel__actions">
+              <button class="response-panel__clear" type="button" data-clear-conversation>
+                Clear
+              </button>
+              <button class="response-panel__stop" type="button" data-stop-generation disabled>
+                Stop
+              </button>
+            </div>
           </div>
           <div class="response-panel__output" data-response-output></div>
         </section>

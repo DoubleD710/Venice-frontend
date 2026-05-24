@@ -40,6 +40,71 @@
   box-shadow: 0 0 0 3px var(--color-accent-soft);
 }
 
+.provider-settings {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-line);
+}
+
+.provider-settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.provider-settings label {
+  display: grid;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.provider-settings select,
+.provider-settings input {
+  width: 100%;
+  color: var(--color-ink);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-panel);
+  background: rgba(3, 8, 11, 0.42);
+  padding: 9px 10px;
+  outline: none;
+}
+
+.provider-settings select:focus,
+.provider-settings input:focus {
+  border-color: var(--color-accent-border);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+.provider-settings__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.provider-settings__key-status {
+  margin-right: auto;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
+.provider-settings button {
+  color: var(--color-ink);
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.provider-settings button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.12);
+}
+
 .mode-toggle {
   color: var(--color-ink);
   border: 1px solid var(--color-line);
@@ -92,12 +157,19 @@
   border-bottom: 1px solid var(--color-line);
 }
 
+.response-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .status-bar {
   justify-self: start;
   color: var(--color-muted);
   font-size: 0.82rem;
 }
 
+.response-panel__clear,
 .response-panel__stop {
   color: var(--color-ink);
   border: 1px solid var(--color-line);
@@ -113,6 +185,7 @@
   opacity: 0.42;
 }
 
+.response-panel__clear:hover,
 .response-panel__stop:not(:disabled):hover {
   transform: translateY(-1px);
   background: rgba(255, 255, 255, 0.12);

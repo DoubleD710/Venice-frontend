@@ -8,6 +8,7 @@ export function initResponsePanel(element) {
 
   const output = element.querySelector('[data-response-output]');
   const stopButton = element.querySelector('[data-stop-generation]');
+  const clearButton = element.querySelector('[data-clear-conversation]');
   const statusBar = initStatusBar(element.querySelector('[data-status-bar]'));
   let isStreaming = false;
   let scrollFrame = 0;
@@ -49,6 +50,15 @@ export function initResponsePanel(element) {
     }
   }
 
+  function setContent(content) {
+    if (!output) {
+      return;
+    }
+
+    output.textContent = content || '';
+    scrollToLatest();
+  }
+
   function appendToken(token) {
     if (!output) {
       return;
@@ -64,12 +74,19 @@ export function initResponsePanel(element) {
     }));
   });
 
+  clearButton?.addEventListener('click', () => {
+    element.dispatchEvent(new CustomEvent('venice:clear-conversation', {
+      bubbles: true
+    }));
+  });
+
   setStreaming(false);
 
   return {
     element,
     open,
     clear,
+    setContent,
     setStatus,
     setStreaming,
     appendToken

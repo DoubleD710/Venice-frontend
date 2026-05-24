@@ -1,23 +1,27 @@
 const LABELS = {
   provider: 'Provider',
+  providerType: 'Type',
+  model: 'Model',
   state: 'State',
   tokenCount: 'Tokens',
   duration: 'Duration',
   fps: 'FPS',
   rippleCount: 'Ripples',
   visualMode: 'Mode',
-  endpointUrl: 'Endpoint'
+  endpointHost: 'Endpoint'
 };
 
 const DEFAULT_STATE = {
   provider: 'None',
+  providerType: 'local',
+  model: '',
   state: 'idle',
   tokenCount: 0,
   duration: '0.0s',
   fps: 0,
   rippleCount: 0,
   visualMode: 'silver',
-  endpointUrl: 'Not connected'
+  endpointHost: 'Not connected'
 };
 
 // Owns the read-only developer overlay display.
