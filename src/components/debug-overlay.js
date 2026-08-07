@@ -1,6 +1,7 @@
 const LABELS = {
   provider: 'Provider',
   providerType: 'Type',
+  capabilities: 'Caps',
   model: 'Model',
   state: 'State',
   tokenCount: 'Tokens',
@@ -9,6 +10,8 @@ const LABELS = {
   chunkCount: 'Chunks',
   byteCount: 'Bytes',
   malformedChunkCount: 'Malformed',
+  toolExecutions: 'Tools',
+  lastToolStatus: 'Tool state',
   fps: 'FPS',
   rippleCount: 'Ripples',
   visualMode: 'Mode',
@@ -18,6 +21,7 @@ const LABELS = {
 const DEFAULT_STATE = {
   provider: 'None',
   providerType: 'local',
+  capabilities: 'stream',
   model: '',
   state: 'idle',
   tokenCount: 0,
@@ -26,6 +30,8 @@ const DEFAULT_STATE = {
   chunkCount: 0,
   byteCount: 0,
   malformedChunkCount: 0,
+  toolExecutions: 0,
+  lastToolStatus: 'idle',
   fps: 0,
   rippleCount: 0,
   visualMode: 'silver',

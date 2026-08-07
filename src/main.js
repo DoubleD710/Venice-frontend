@@ -8,6 +8,8 @@ import { createTokenStream } from './utils/token-stream.js';
 import { clearConversation, loadConversation, saveConversation } from './utils/conversation-store.js';
 import { getDefaultProvider, getProvider } from './utils/provider-registry.js';
 import { loadProviderSettings } from './utils/provider-settings.js';
+import { negotiateProviderCapabilities, summarizeNegotiatedCapabilities } from './utils/provider-capabilities.js';
+import { createToolRuntime } from './utils/tool-runtime.js';
 
 // App entrypoint: keep startup wiring visible and easy to follow.
 const water = createWaterCanvas(document.querySelector('[data-water-canvas]'));
@@ -16,6 +18,13 @@ const responsePanel = initResponsePanel(document.querySelector('[data-response-p
 const tokenStream = createTokenStream(fusionBox);
 const debugOverlay = initDebugOverlay();
 const fusion = initFusionBox(fusionBox);
+const toolRuntime = createToolRuntime({
+  contextProvider() {
+    return {
+      diagnosticsSnapshot: debugState
+    };
+  }
+});
 initProviderSettingsPanel(document.querySelector('[data-provider-settings]'));
 let savedMessages = loadConversation();
 let activeMessage = null;
@@ -23,6 +32,7 @@ let activeResponse = '';
 const debugState = {
   provider: 'None',
   providerType: 'local',
+  capabilities: 'stream',
   model: '',
   state: 'idle',
   tokenCount: 0,
@@ -31,6 +41,8 @@ const debugState = {
   chunkCount: 0,
   byteCount: 0,
   malformedChunkCount: 0,
+  toolExecutions: 0,
+  lastToolStatus: 'idle',
   fps: 0,
   rippleCount: 0,
   visualMode: document.documentElement.dataset.visualMode || 'silver',
@@ -59,11 +71,13 @@ function getEndpointHost(endpointUrl) {
 function getSelectedProviderSummary() {
   const settings = loadProviderSettings();
   const provider = getProvider(settings.selectedProvider) || getDefaultProvider();
+  const model = settings.models[provider.id] || provider.defaultModel;
 
   return {
     provider: provider.label,
     providerType: provider.type,
-    model: settings.models[provider.id] || provider.defaultModel,
+    capabilities: summarizeNegotiatedCapabilities(negotiateProviderCapabilities(provider.id, { modelId: model })),
+    model,
     endpointHost: getEndpointHost(settings.endpoints[provider.id] || provider.defaultEndpoint)
   };
 }
@@ -89,6 +103,7 @@ function restoreConversation() {
   updateDebugOverlay({
     provider: latestMessage.provider.name,
     providerType: latestMessage.provider.type || 'local',
+    capabilities: latestMessage.provider.capabilities || 'stream',
     model: latestMessage.provider.model || '',
     state: latestMessage.state,
     tokenCount: latestMessage.response.split(/\s+/).filter(Boolean).length,
@@ -111,11 +126,20 @@ function startActiveMessage(prompt) {
     provider: {
       name: 'None',
       type: 'local',
+      capabilities: 'stream',
       model: '',
       endpointHost: 'Connecting'
     },
     state: 'streaming'
   };
+}
+
+function updateActiveCapabilities(capabilities) {
+  if (!activeMessage) {
+    return;
+  }
+
+  activeMessage.provider.capabilities = summarizeNegotiatedCapabilities(capabilities);
 }
 
 function updateActiveMessage(status) {
@@ -127,6 +151,7 @@ function updateActiveMessage(status) {
   activeMessage.provider = {
     name: status.provider || activeMessage.provider.name,
     type: status.providerType || activeMessage.provider.type,
+    capabilities: status.capabilities || activeMessage.provider.capabilities,
     model: status.model || activeMessage.provider.model,
     endpointHost: getEndpointHost(status.endpointUrl) || activeMessage.provider.endpointHost
   };
@@ -159,10 +184,20 @@ water.onStats((stats) => {
   });
 });
 
+toolRuntime.onEvent((event) => {
+  const diagnostics = toolRuntime.getDiagnostics();
+
+  updateDebugOverlay({
+    toolExecutions: diagnostics.executionCount,
+    lastToolStatus: event.phase
+  });
+});
+
 document.addEventListener('venice:provider-settings-saved', (event) => {
   updateDebugOverlay({
     provider: event.detail.provider,
     providerType: event.detail.providerType,
+    capabilities: summarizeNegotiatedCapabilities(negotiateProviderCapabilities(event.detail.providerId, { modelId: event.detail.model })),
     model: event.detail.model,
     endpointHost: getEndpointHost(event.detail.endpointUrl)
   });
@@ -184,6 +219,7 @@ document.addEventListener('venice:send', (event) => {
   updateDebugOverlay({
     provider: 'None',
     providerType: 'local',
+    capabilities: 'stream',
     model: '',
     state: 'streaming',
     tokenCount: 0,
@@ -217,6 +253,12 @@ document.addEventListener('venice:send', (event) => {
         responsePanel.setStatus(validation.errors[0]);
       }
     },
+    onCapabilities(capabilities) {
+      updateActiveCapabilities(capabilities);
+      updateDebugOverlay({
+        capabilities: summarizeNegotiatedCapabilities(capabilities)
+      });
+    },
     onMetrics(metrics) {
       updateDebugOverlay({
         tokenCount: metrics.tokenCount,
@@ -236,10 +278,13 @@ document.addEventListener('venice:send', (event) => {
       activeResponse += token;
       responsePanel.appendToken(token);
     },
-    onToolCall(toolCall) {
+    async onToolCall(toolCall) {
       responsePanel.setStatus(`Tool call parsed: ${toolCall.name || 'unnamed'}`);
       updateDebugOverlay({
         state: 'tool_call'
+      });
+      await toolRuntime.executeTool(toolCall, {
+        diagnosticsSnapshot: debugState
       });
     },
     onDone(status) {
@@ -287,6 +332,7 @@ document.addEventListener('venice:clear-conversation', () => {
   updateDebugOverlay({
     provider: 'None',
     providerType: 'local',
+    capabilities: 'stream',
     model: '',
     state: 'idle',
     tokenCount: 0,
@@ -295,6 +341,8 @@ document.addEventListener('venice:clear-conversation', () => {
     chunkCount: 0,
     byteCount: 0,
     malformedChunkCount: 0,
+    toolExecutions: 0,
+    lastToolStatus: 'idle',
     endpointHost: 'Not connected'
   });
 });

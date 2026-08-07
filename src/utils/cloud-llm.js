@@ -60,9 +60,24 @@ export async function* normalizeCloudStream(providerId, response) {
       yield event;
     }
   } catch (error) {
+    if (error.name === 'AbortError') {
+      const event = {
+        type: 'status',
+        state: 'stopped',
+        message: 'Stopped'
+      };
+
+      yield {
+        type: 'diagnostic',
+        diagnostics: diagnostics.recordEvent(event)
+      };
+      yield event;
+      return;
+    }
+
     const event = {
       type: 'error',
-      error: error.name === 'AbortError' ? 'Stopped' : error.message
+      error: error.message
     };
 
     yield {
@@ -144,16 +159,23 @@ export async function* sendCloudPrompt({
       yield event;
     }
   } catch (error) {
+    if (error.name === 'AbortError') {
+      yield {
+        type: 'status',
+        state: 'stopped',
+        provider: provider.label,
+        providerId: provider.id,
+        providerType: provider.type,
+        endpointUrl: activeEndpoint,
+        model: activeModel,
+        message: 'Stopped'
+      };
+      return;
+    }
+
     yield {
-      type: error.name === 'AbortError' ? 'status' : 'error',
-      state: error.name === 'AbortError' ? 'stopped' : undefined,
-      provider: provider.label,
-      providerId: provider.id,
-      providerType: provider.type,
-      endpointUrl: activeEndpoint,
-      model: activeModel,
-      message: error.name === 'AbortError' ? 'Stopped' : undefined,
-      error: error.name === 'AbortError' ? undefined : error.message
+      type: 'error',
+      error: error.message
     };
   }
 }

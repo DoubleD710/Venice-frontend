@@ -28,6 +28,7 @@ export function createTokenStream(rippleTarget) {
   let activeRequestId = 0;
   let cloudAbortController = null;
   let activeRuntime = null;
+  let activeCapabilities = null;
 
   function getDuration() {
     if (!startedAt) {
@@ -89,6 +90,19 @@ export function createTokenStream(rippleTarget) {
   }
 
   function handleToolCall(toolCall) {
+    if (!activeCapabilities?.enabled?.tools) {
+      handleStatus({
+        state: REQUEST_STATES.error,
+        message: 'Tool call received without negotiated tool capability',
+        provider: activeRuntime?.provider?.label || 'Unknown',
+        providerId: activeRuntime?.provider?.id || 'unknown',
+        providerType: activeRuntime?.provider?.type || 'unknown',
+        endpointUrl: activeRuntime?.endpoint || '',
+        model: activeRuntime?.model || ''
+      });
+      return;
+    }
+
     handlers.onToolCall?.(toolCall);
   }
 
@@ -113,7 +127,14 @@ export function createTokenStream(rippleTarget) {
     }
 
     if (event.type === 'status') {
-      handleStatus(event);
+      handleStatus({
+        provider: runtime.provider.label,
+        providerId: runtime.provider.id,
+        providerType: runtime.provider.type,
+        endpointUrl: runtime.endpoint,
+        model: runtime.model,
+        ...event
+      });
       return;
     }
 
@@ -184,6 +205,7 @@ export function createTokenStream(rippleTarget) {
       if (requestId === activeRequestId) {
         cloudAbortController = null;
         activeRuntime = null;
+        activeCapabilities = null;
       }
     }
   }
@@ -214,11 +236,17 @@ export function createTokenStream(rippleTarget) {
     const requestId = activeRequestId;
     const runtime = getRuntimeProviderSettings();
     activeRuntime = runtime;
+    activeCapabilities = null;
     const validation = validateProviderRuntime({
       provider: runtime.provider,
       model: runtime.model,
       endpoint: runtime.endpoint,
-      apiKey: runtime.apiKey
+      apiKey: runtime.apiKey,
+      requestedCapabilities: {
+        streaming: true,
+        tools: true,
+        json: false
+      }
     });
 
     handlers.onValidation?.(validation);
@@ -236,6 +264,12 @@ export function createTokenStream(rippleTarget) {
       return Promise.resolve();
     }
 
+    runtime.modelMetadata = validation.modelResolution.model;
+    runtime.model = validation.modelResolution.model.id;
+    activeRuntime = runtime;
+    activeCapabilities = validation.capabilities;
+    handlers.onCapabilities?.(validation.capabilities);
+
     if (isCloudProvider(runtime.provider.id)) {
       return startCloud(prompt, runtime, requestId);
     }
@@ -243,7 +277,8 @@ export function createTokenStream(rippleTarget) {
     return localLlm.sendPrompt(prompt, {
       providerId: runtime.provider.id,
       model: runtime.model,
-      endpoint: runtime.endpoint
+      endpoint: runtime.endpoint,
+      modelMetadata: runtime.modelMetadata
     });
   }
 
@@ -255,10 +290,12 @@ export function createTokenStream(rippleTarget) {
       cloudAbortController = null;
       emitStoppedForRuntime(activeRuntime);
       activeRuntime = null;
+      activeCapabilities = null;
       return;
     }
 
     activeRuntime = null;
+    activeCapabilities = null;
     return localLlm.stopGeneration();
   }
 

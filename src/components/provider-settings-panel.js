@@ -7,6 +7,7 @@ import {
   setProviderCredential
 } from '../utils/provider-settings.js';
 import { getProviderValidationMessage, validateProviderRuntime } from '../utils/provider-validation.js';
+import { summarizeNegotiatedCapabilities } from '../utils/provider-capabilities.js';
 
 function getSummary(providerId, settings) {
   const provider = getProvider(providerId);
@@ -32,6 +33,7 @@ export function initProviderSettingsPanel(element) {
   const apiKeyGroup = element.querySelector('[data-api-key-group]');
   const apiKeyInput = element.querySelector('[data-provider-api-key]');
   const apiKeyStatus = element.querySelector('[data-api-key-status]');
+  const capabilityStatus = element.querySelector('[data-capability-status]');
   const saveButton = element.querySelector('[data-save-provider-settings]');
   const clearKeyButton = element.querySelector('[data-clear-provider-key]');
 
@@ -78,7 +80,12 @@ export function initProviderSettingsPanel(element) {
       provider,
       model: modelInput.value,
       endpoint: endpointInput.value,
-      apiKey: savedKey
+      apiKey: savedKey,
+      requestedCapabilities: {
+        streaming: true,
+        tools: true,
+        json: true
+      }
     });
 
     apiKeyGroup.hidden = !needsKey;
@@ -88,6 +95,10 @@ export function initProviderSettingsPanel(element) {
     apiKeyStatus.textContent = needsKey && savedKey
       ? maskApiKey(savedKey)
       : getProviderValidationMessage(validation);
+
+    if (capabilityStatus) {
+      capabilityStatus.textContent = summarizeNegotiatedCapabilities(validation.capabilities);
+    }
   }
 
   function save() {

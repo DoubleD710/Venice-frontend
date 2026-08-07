@@ -1,4 +1,6 @@
 import { getProvider, isCloudProvider } from './provider-registry.js';
+import { negotiateProviderCapabilities } from './provider-capabilities.js';
+import { resolveModel } from './model-resolution.js';
 
 function isHttpEndpoint(endpoint) {
   try {
@@ -10,10 +12,15 @@ function isHttpEndpoint(endpoint) {
   }
 }
 
-export function validateProviderRuntime({ provider, model, endpoint, apiKey }) {
+export function validateProviderRuntime({ provider, model, endpoint, apiKey, requestedCapabilities = {} }) {
   const errors = [];
   const warnings = [];
   const knownProvider = provider ? getProvider(provider.id) : null;
+  const modelResolution = resolveModel(provider?.id, model);
+  const negotiatedCapabilities = negotiateProviderCapabilities(provider?.id, {
+    ...requestedCapabilities,
+    modelId: model
+  }, modelResolution);
 
   if (!knownProvider) {
     errors.push('Unknown provider');
@@ -29,9 +36,9 @@ export function validateProviderRuntime({ provider, model, endpoint, apiKey }) {
     errors.push('Endpoint must be an http or https URL');
   }
 
-  if (knownProvider && !knownProvider.supportsStreaming) {
-    errors.push(`${knownProvider.label} does not support streaming`);
-  }
+  errors.push(...negotiatedCapabilities.errors);
+  warnings.push(...negotiatedCapabilities.warnings);
+  errors.push(...modelResolution.errors);
 
   if (knownProvider && isCloudProvider(knownProvider.id) && !apiKey) {
     errors.push(`${knownProvider.label} API key is required`);
@@ -41,10 +48,15 @@ export function validateProviderRuntime({ provider, model, endpoint, apiKey }) {
     warnings.push('Local providers usually use localhost http endpoints');
   }
 
+  const uniqueErrors = Array.from(new Set(errors));
+  const uniqueWarnings = Array.from(new Set(warnings));
+
   return {
-    ok: errors.length === 0,
-    errors,
-    warnings
+    ok: uniqueErrors.length === 0,
+    errors: uniqueErrors,
+    warnings: uniqueWarnings,
+    capabilities: negotiatedCapabilities,
+    modelResolution
   };
 }
 

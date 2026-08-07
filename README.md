@@ -36,11 +36,28 @@ Keep modules readable and focused. Prefer canvas for atmospheric effects, keep D
 Provider architecture is split away from UI code:
 
 - `provider-registry.js` defines local and cloud provider capabilities.
+- `model-contracts.js` defines provider-agnostic model metadata.
+- `model-registry.js` registers local and cloud models.
+- `model-resolution.js` resolves selected provider/model pairs before capability negotiation.
+- `provider-capabilities.js` negotiates requested features against resolved model metadata and provider transport support.
 - `provider-settings.js` owns localStorage-backed provider settings and credentials.
 - `provider-validation.js` performs preflight checks before any provider request.
 - `local-llm.js` and `cloud-llm.js` own fetch transport.
 - `stream-normalizer.js` turns provider-specific stream chunks into Venice events.
 - `stream-diagnostics.js` tracks safe stream counters and timing for observability.
-- `tool-call-normalizer.js` parses tool calls but does not execute them yet.
+- `embedding-contracts.js` defines normalized embedding requests, vectors, lifecycle events, and results.
+- `embedding-provider-registry.js` owns embedding transport adapter metadata.
+- `embedding-runtime.js` validates embedding-capable models, requests vectors, and normalizes embedding results.
+- `recall-contracts.js`, `recall-result.js`, and `recall-runtime.js` rank in-memory candidates and assemble context packages without storage.
+- `memory-types.js`, `memory-candidate.js`, `memory-card.js`, and `memory-contracts.js` define memory shapes only; no Memory Runtime or storage is implemented.
+- `memory-admission-contracts.js` and `memory-admission.js` score and accept/reject memory candidates before lifecycle handling.
+- `memory-events.js`, `memory-lifecycle.js`, and `memory-runtime.js` own in-memory memory lifecycle behavior only; no storage or retrieval is implemented.
+- `memory-operation-contracts.js` and `memory-operations.js` define proposed deterministic memory state changes only; operations are validated but never executed.
+- `tool-call-normalizer.js` parses provider tool requests without executing them.
+- `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
+- `tool-registry.js` owns the small built-in tool list.
+- `tool-runtime.js` validates, permission-checks, executes, and reports tool lifecycle events.
 
-Tool calling is intentionally parse-only in this phase. Future safe tool execution should live behind explicit allowlists and user-controlled execution boundaries.
+Tool execution is intentionally narrow in this phase. The runtime includes calculator, current-time, and diagnostics-snapshot tools only. There are no agents, autonomous loops, shell tools, filesystem mutation tools, or browser automation tools.
+
+Future tool systems should plug in through the registry, permission hook, and sandbox hook instead of changing provider transports or UI modules. Providers may request tool calls; the execution layer decides whether they run.

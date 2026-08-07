@@ -1,5 +1,43 @@
 import { normalizeToolCalls } from './tool-call-normalizer.js';
 
+function normalizeTokenCount(value) {
+  return Number.isFinite(value) ? value : null;
+}
+
+export function normalizeUsageMetadata(providerId, rawUsage = {}) {
+  const usage = rawUsage || {};
+  const raw = Object.keys(usage).length > 0 ? usage : null;
+  const promptTokens = normalizeTokenCount(
+    usage.prompt_tokens
+      ?? usage.promptTokens
+      ?? usage.prompt_eval_count
+      ?? usage.promptEvalCount
+  );
+  const completionTokens = normalizeTokenCount(
+    usage.completion_tokens
+      ?? usage.completionTokens
+      ?? usage.eval_count
+      ?? usage.evalCount
+  );
+  const totalTokens = normalizeTokenCount(
+    usage.total_tokens
+      ?? usage.totalTokens
+      ?? (
+        promptTokens !== null && completionTokens !== null
+          ? promptTokens + completionTokens
+          : null
+      )
+  );
+
+  return {
+    provider: providerId,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    raw
+  };
+}
+
 function parseJson(payload) {
   try {
     return {
@@ -29,7 +67,10 @@ function normalizeOpenAiCompatible(providerId, data) {
   });
 
   if (choice?.finish_reason || data?.usage) {
-    events.push({ type: 'complete', usage: data.usage });
+    events.push({
+      type: 'complete',
+      usage: normalizeUsageMetadata(providerId, data.usage || {})
+    });
   }
 
   return events;
@@ -45,10 +86,7 @@ function normalizeOllama(data) {
   if (data?.done) {
     events.push({
       type: 'complete',
-      usage: {
-        promptEvalCount: data.prompt_eval_count,
-        evalCount: data.eval_count
-      }
+      usage: normalizeUsageMetadata('ollama', data)
     });
   }
 
@@ -64,7 +102,10 @@ function normalizeLlamaCpp(data) {
   }
 
   if (data?.stop || data?.stopped || data?.done || data?.choices?.[0]?.finish_reason) {
-    events.push({ type: 'complete', usage: data.usage });
+    events.push({
+      type: 'complete',
+      usage: normalizeUsageMetadata('llamaCpp', data.usage || data)
+    });
   }
 
   return events;
@@ -96,7 +137,10 @@ function normalizeLine(providerId, line) {
   const payload = text.startsWith('data:') ? text.slice(5).trim() : text;
 
   if (!payload || payload === '[DONE]') {
-    return [{ type: 'complete' }];
+    return [{
+      type: 'complete',
+      usage: normalizeUsageMetadata(providerId)
+    }];
   }
 
   const parsed = parseJson(payload);

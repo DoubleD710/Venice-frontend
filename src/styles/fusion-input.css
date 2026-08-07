@@ -84,10 +84,18 @@
   margin-top: 10px;
 }
 
-.provider-settings__key-status {
-  margin-right: auto;
+.provider-settings__key-status,
+.provider-settings__capability-status {
   color: var(--color-muted);
   font-size: 0.78rem;
+}
+
+.provider-settings__key-status {
+  margin-right: auto;
+}
+
+.provider-settings__capability-status {
+  margin-right: 0;
 }
 
 .provider-settings button {

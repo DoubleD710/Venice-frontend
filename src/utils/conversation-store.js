@@ -21,6 +21,7 @@ function normalizeMessage(message) {
       id: message?.provider?.id || '',
       name: message?.provider?.name || 'None',
       type: message?.provider?.type || 'local',
+      capabilities: message?.provider?.capabilities || '',
       model: message?.provider?.model || '',
       endpointHost: message?.provider?.endpointHost || '',
       endpointUrl: message?.provider?.endpointUrl || 'Not connected'

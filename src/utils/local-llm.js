@@ -43,6 +43,7 @@ export function createLocalLlm() {
 
     const activeProvider = provider || getDefaultProvider();
     const status = {
+      type: 'status',
       state,
       message,
       provider: activeProvider.label,
