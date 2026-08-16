@@ -60,6 +60,7 @@ Provider architecture is split away from UI code:
 - `relationship-runtime.js` is the sole authority for in-memory relationship records and deterministic edge mutation. It exposes defensive snapshots and no traversal or graph-query API.
 - `observation-types.js` and `observation-contracts.js` define inert evidence records only. They contain no collection, verification, interpretation, or runtime behavior.
 - `observation-runtime.js` owns in-memory observation records and exposes defensive record/get/list boundaries. It does not evaluate or interpret evidence.
+- `verification-types.js` and `verification-contracts.js` define inert verification result, check, and finding shapes. They execute no verification behavior.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -106,3 +107,9 @@ Observation Contract -> Observation Runtime -> in-memory observation state -> fu
 Observation records facts about what happened. Observation Runtime records those facts without judging them. Future Verification evaluates observations, and future Reflection interprets them.
 
 Observation Runtime does not create memory or relationships. It has no persistence and no delete API because Observation Contracts do not yet define lifecycle or deletion semantics.
+
+## Verification Contracts
+
+Observation -> Verification Contract -> future Verification Runtime.
+
+Observation records facts. Verification represents evaluation results without mutating the source observation. Verification Contracts are inert and create neither memory nor relationships; Verification Runtime does not exist yet.
