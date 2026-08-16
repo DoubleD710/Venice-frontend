@@ -142,3 +142,20 @@ Reasoning Core runs are ordered and fail-fast, but non-transactional. Each succe
 On partial failure, `completedProposalCount` identifies the committed prefix of `dispatchResults`; the result also identifies the failed proposal and lists later proposals that were not executed.
 
 The end-to-end Memory and Relationship paths exercise this production module with deterministic injected test components. This proves the ownership chain without model-backed reasoning, provider calls, persistence, or direct domain-state mutation.
+
+## Model Reflection Strategy
+
+```text
+Verified Evidence
+    -> Reflection Runtime
+    -> Model Reflection Strategy
+    -> Validated Reflection Proposal
+    -> Dispatcher
+    -> Deterministic Executor
+    -> Domain Runtime
+    -> State
+```
+
+The model is advisory and can only return structured proposal candidates. Model output is untrusted: proposal validation is mandatory, the adapter executes no code, and deterministic runtimes remain the only authority that can mutate state. The current model strategy is an integration adapter, not a new reasoning authority.
+
+The injected model client exposes `generate(request)` and returns `{ structuredOutput, metadata? }`. `structuredOutput` must be an object or JSON string with a `proposals` array. Because the current Reflection Runtime is synchronous, `generate()` must also return synchronously. Existing fetch-based transports are not wired into this adapter yet; doing so requires a future explicit async Reflection Runtime decision.
