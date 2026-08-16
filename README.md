@@ -58,6 +58,7 @@ Provider architecture is split away from UI code:
 - `relationship-operation-contracts.js` and `relationship-operations.js` define inert proposals for future relationship mutations. They validate contracts and emit proposal lifecycle events without executing changes.
 - `relationship-operation-executor.js` enforces execution preconditions and dispatches validated proposals through an injected runtime interface. It owns no relationship state.
 - `relationship-runtime.js` is the sole authority for in-memory relationship records and deterministic edge mutation. It exposes defensive snapshots and no traversal or graph-query API.
+- `observation-types.js` and `observation-contracts.js` define inert evidence records only. They contain no collection, verification, interpretation, or runtime behavior.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -96,3 +97,9 @@ The Relationship Operation Executor owns dispatch and execution-precondition enf
 Linking rejects an existing relationship ID or an exact duplicate directed edge. Unlinking removes an existing relationship and rejects missing relationships. Strengthen and weaken operations saturate confidence deterministically within `0` and `1`.
 
 Relationship state is in memory only. No graph database, persistence, traversal, semantic relationship inference, or cross-runtime state ownership exists.
+
+## Observation Contracts
+
+Observation Contract -> future Observation Runtime -> future Verification Runtime -> future Reflection Runtime.
+
+Observation records facts about what happened. Future Verification evaluates those facts, and future Reflection interprets them. Observation Contracts are inert, deterministic, and state-independent; no Observation Runtime exists yet.
