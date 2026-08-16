@@ -130,3 +130,9 @@ Reflection Contract -> Reflection Proposal Dispatcher -> Memory Operation Execut
 Or: Reflection Contract -> Reflection Proposal Dispatcher -> Relationship Operation Executor -> Relationship Runtime.
 
 Reflection proposes, the dispatcher routes, domain executors validate and dispatch, and domain runtimes own state. Reflection has no direct mutation authority.
+
+## Reasoning Core End-to-End
+
+Observation -> Verification -> Reflection -> Proposal -> Dispatcher -> Executor -> Domain Runtime -> State.
+
+The end-to-end Memory and Relationship paths are demonstrated with deterministic injected test components. This proves the ownership chain without model-backed reasoning, provider calls, persistence, or direct domain-state mutation.
