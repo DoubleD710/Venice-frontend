@@ -61,6 +61,7 @@ Provider architecture is split away from UI code:
 - `observation-types.js` and `observation-contracts.js` define inert evidence records only. They contain no collection, verification, interpretation, or runtime behavior.
 - `observation-runtime.js` owns in-memory observation records and exposes defensive record/get/list boundaries. It does not evaluate or interpret evidence.
 - `verification-types.js` and `verification-contracts.js` define inert verification result, check, and finding shapes. They execute no verification behavior.
+- `verification-runtime.js` executes injected checks and aggregates normalized verification results without storing history or interpreting evidence.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -110,6 +111,8 @@ Observation Runtime does not create memory or relationships. It has no persisten
 
 ## Verification Contracts
 
-Observation -> Verification Contract -> future Verification Runtime.
+Observation -> Verification Runtime -> Verification Result -> future Reflection Runtime.
 
-Observation records facts. Verification represents evaluation results without mutating the source observation. Verification Contracts are inert and create neither memory nor relationships; Verification Runtime does not exist yet.
+Observation records facts. Verification Runtime executes explicitly injected checks and produces Verification Results without mutating the source observation. It does not interpret results, create memory or relationships, or persist history.
+
+Status aggregation uses explicit precedence: `rejected`, then `degraded`, then `uncertain`, then `verified`. Confidence is the unweighted arithmetic mean of validated check confidences. Failed or malformed checks become degraded results with confidence `0`; exact duplicate findings are preserved in check order.
