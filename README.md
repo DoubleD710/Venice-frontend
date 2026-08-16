@@ -62,6 +62,7 @@ Provider architecture is split away from UI code:
 - `observation-runtime.js` owns in-memory observation records and exposes defensive record/get/list boundaries. It does not evaluate or interpret evidence.
 - `verification-types.js` and `verification-contracts.js` define inert verification result, check, and finding shapes. They execute no verification behavior.
 - `verification-runtime.js` executes injected checks and aggregates normalized verification results without storing history or interpreting evidence.
+- `reflection-types.js` and `reflection-contracts.js` define inert proposals that interpret verified evidence into already-valid domain operations. They execute nothing.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -116,3 +117,9 @@ Observation -> Verification Runtime -> Verification Result -> future Reflection 
 Observation records facts. Verification Runtime executes explicitly injected checks and produces Verification Results without mutating the source observation. It does not interpret results, create memory or relationships, or persist history.
 
 Status aggregation uses explicit precedence: `rejected`, then `degraded`, then `uncertain`, then `verified`. Confidence is the unweighted arithmetic mean of validated check confidences. Failed or malformed checks become degraded results with confidence `0`; exact duplicate findings are preserved in check order.
+
+## Reflection Contracts
+
+Observation -> Verification -> Reflection Contract -> future Reflection Runtime -> Operation -> Deterministic Runtime.
+
+Reflection interprets verified evidence and produces inert proposals. It does not execute operations or mutate Memory or Relationships. Reflection confidence is distinct from verification confidence, and no Reflection Runtime exists yet.
