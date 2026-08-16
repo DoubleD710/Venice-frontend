@@ -49,10 +49,11 @@ Provider architecture is split away from UI code:
 - `embedding-provider-registry.js` owns embedding transport adapter metadata.
 - `embedding-runtime.js` validates embedding-capable models, requests vectors, and normalizes embedding results.
 - `recall-contracts.js`, `recall-result.js`, and `recall-runtime.js` rank in-memory candidates and assemble context packages without storage.
-- `memory-types.js`, `memory-candidate.js`, `memory-card.js`, and `memory-contracts.js` define memory shapes only; no Memory Runtime or storage is implemented.
+- `memory-types.js`, `memory-candidate.js`, `memory-card.js`, and `memory-contracts.js` define memory shapes only.
 - `memory-admission-contracts.js` and `memory-admission.js` score and accept/reject memory candidates before lifecycle handling.
 - `memory-events.js`, `memory-lifecycle.js`, and `memory-runtime.js` own in-memory memory lifecycle behavior only; no storage or retrieval is implemented.
 - `memory-operation-contracts.js` and `memory-operations.js` define proposed deterministic memory state changes only; operations are validated but never executed.
+- `memory-operation-executor.js` dispatches validated memory operations into Memory Runtime. The executor does not own memory state; Memory Runtime is the only in-memory mutation authority.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -61,3 +62,19 @@ Provider architecture is split away from UI code:
 Tool execution is intentionally narrow in this phase. The runtime includes calculator, current-time, and diagnostics-snapshot tools only. There are no agents, autonomous loops, shell tools, filesystem mutation tools, or browser automation tools.
 
 Future tool systems should plug in through the registry, permission hook, and sandbox hook instead of changing provider transports or UI modules. Providers may request tool calls; the execution layer decides whether they run.
+
+## Venice v0.1 Memory Flow
+
+Memory Operation -> Contract Validation -> Memory Operation Executor -> Execution Preconditions -> Memory Runtime -> In-Memory State -> Normalized Result / Events / Error.
+
+Memory Operations normalize and propose deterministic state changes. Contract Validation is pure, deterministic, and state-independent: it checks shape, operation type, enum values, field types, `operationId`, optional `idempotencyKey`, and merge policy syntax. It does not inspect runtime state.
+
+Memory Operation Executor validates state-dependent execution preconditions and dispatches only. It owns no memory state, does not reason, and does not mutate runtime maps directly. Memory Runtime is the only in-memory mutation authority; it owns memory records, lifecycle state, deterministic mutation behavior, and safe snapshots through `getCard()` / `listCards()`.
+
+Merge policy is explicit. v0.1 supports only `target_wins`; missing policy and unsupported policies are rejected deterministically. Merge does not infer precedence from timestamps, argument order, insertion order, source names, or field values.
+
+`expire` is soft expiration: the card remains present, transitions to archived lifecycle state, and carries explicit expiration metadata. `delete` removes the card from active in-memory state. `update` is not upsert; missing cards fail with a normalized error.
+
+`operationId` identifies one operation instance. `idempotencyKey` is optional and identifies repeated submissions that represent the same intended effect. v0.1 preserves both through validation, executor events, results, and errors, but does not implement replay suppression, dedupe storage, or global uniqueness enforcement.
+
+This v0.1 Memory Core has no Admission wiring, Recall, Reflection, Relationships, Persistence, Embeddings, Providers, UI integration, Planner, Research Runtime, Conversation Compiler integration, filesystem access, network access, database access, or vector DB access.

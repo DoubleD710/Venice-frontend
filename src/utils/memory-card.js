@@ -18,7 +18,13 @@ function normalizeBoundedScore(value, fallback = 0) {
 }
 
 function normalizeArray(value) {
-  return Array.isArray(value) ? value : [value].filter((item) => item !== undefined && item !== null);
+  return Array.isArray(value) ? [...value] : [value].filter((item) => item !== undefined && item !== null);
+}
+
+function normalizeMetadata(metadata = {}) {
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? JSON.parse(JSON.stringify(metadata))
+    : {};
 }
 
 export function createMemoryCard({
@@ -40,7 +46,7 @@ export function createMemoryCard({
     summary,
     tags: normalizeArray(tags),
     evidence: normalizeArray(evidence),
-    metadata,
+    metadata: normalizeMetadata(metadata),
     lifecycleState
   };
 }

@@ -20,6 +20,12 @@ export const MEMORY_OPERATION_PHASES = {
   error: 'error'
 };
 
+export const MEMORY_MERGE_POLICIES = {
+  sourceWins: 'source_wins',
+  targetWins: 'target_wins',
+  fieldwiseExplicit: 'fieldwise_explicit'
+};
+
 function normalizeTargetMemoryIds(targetMemoryIds = []) {
   if (Array.isArray(targetMemoryIds)) {
     return targetMemoryIds.filter(Boolean);
@@ -34,18 +40,22 @@ function normalizeObject(value = {}) {
 
 export function createMemoryOperation({
   operationId = '',
+  idempotencyKey = '',
   operationType = '',
   targetMemoryIds = [],
   payload = {},
+  mergePolicy = '',
   proposalMetadata = {},
   timestamp = '',
   validationStatus = MEMORY_OPERATION_VALIDATION_STATUS.pending
 } = {}) {
   return {
     operationId,
+    idempotencyKey,
     operationType,
     targetMemoryIds: normalizeTargetMemoryIds(targetMemoryIds),
     payload: normalizeObject(payload),
+    mergePolicy,
     proposalMetadata: normalizeObject(proposalMetadata),
     timestamp,
     validationStatus
@@ -57,6 +67,7 @@ export function createMemoryOperationEvent(phase, operation, detail = {}) {
     type: 'memory_operation_event',
     phase,
     operationId: operation?.operationId || '',
+    idempotencyKey: operation?.idempotencyKey || '',
     operationType: operation?.operationType || '',
     timestamp: operation?.timestamp || '',
     ...detail
@@ -81,6 +92,10 @@ export function isValidMemoryOperationValidationStatus(validationStatus) {
   return Object.values(MEMORY_OPERATION_VALIDATION_STATUS).includes(validationStatus);
 }
 
+export function isValidMemoryMergePolicy(mergePolicy) {
+  return Object.values(MEMORY_MERGE_POLICIES).includes(mergePolicy);
+}
+
 export function validateMemoryOperationShape(operation) {
   const errors = [];
 
@@ -93,6 +108,10 @@ export function validateMemoryOperationShape(operation) {
 
   if (!operation.operationId) {
     errors.push('Memory operation operationId is required');
+  }
+
+  if (operation.idempotencyKey !== undefined && typeof operation.idempotencyKey !== 'string') {
+    errors.push('Memory operation idempotencyKey must be a string');
   }
 
   if (!isValidMemoryOperationType(operation.operationType)) {
@@ -117,6 +136,10 @@ export function validateMemoryOperationShape(operation) {
 
   if (!isValidMemoryOperationValidationStatus(operation.validationStatus)) {
     errors.push('Memory operation validationStatus is invalid');
+  }
+
+  if (operation.mergePolicy && !isValidMemoryMergePolicy(operation.mergePolicy)) {
+    errors.push('Memory operation mergePolicy is invalid');
   }
 
   if (operation.operationType === MEMORY_OPERATION_TYPES.merge && operation.targetMemoryIds?.length < 2) {

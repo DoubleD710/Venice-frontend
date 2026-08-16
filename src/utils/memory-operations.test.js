@@ -18,6 +18,7 @@ function assert(name, condition) {
 function createValidOperation(overrides = {}) {
   return {
     operationId: 'operation-1',
+    idempotencyKey: 'idem-1',
     operationType: MEMORY_OPERATION_TYPES.put,
     targetMemoryIds: [],
     payload: {
@@ -61,10 +62,17 @@ export function runMemoryOperationTests() {
     operationId: 'operation-3',
     operationType: 'unknown'
   }));
+  const invalidMergePolicy = processor.propose(createValidOperation({
+    operationId: 'operation-invalid-merge-policy',
+    operationType: MEMORY_OPERATION_TYPES.merge,
+    targetMemoryIds: ['memory-1', 'memory-2'],
+    mergePolicy: 'argument_order_wins'
+  }));
   const merge = processor.propose(createValidOperation({
     operationId: 'operation-4',
     operationType: MEMORY_OPERATION_TYPES.merge,
     targetMemoryIds: ['memory-1', 'memory-2'],
+    mergePolicy: 'target_wins',
     payload: {
       mergedMemoryId: 'memory-1'
     }
@@ -89,7 +97,9 @@ export function runMemoryOperationTests() {
     assert('malformed operations', !malformed.ok && malformed.errors[0] === 'Memory operation must be an object'),
     assert('missing fields', missingFields.status === 'invalid' && missingFields.error === 'Memory operation operationId is required'),
     assert('invalid operation types', invalidType.status === 'invalid' && invalidType.error === 'Memory operation operationType is invalid'),
+    assert('invalid merge policy syntax', invalidMergePolicy.status === 'invalid' && invalidMergePolicy.error === 'Memory operation mergePolicy is invalid'),
     assert('normalization', normalized.targetMemoryIds.length === 1 && normalized.targetMemoryIds[0] === 'memory-2'),
+    assert('operation identity preservation', valid.operation.operationId === 'operation-1' && valid.operation.idempotencyKey === 'idem-1'),
     assert('merge operation validation', merge.status === 'valid' && merge.operation.targetMemoryIds.length === 2),
     assert('delete operation validation', deleteOperation.status === 'valid'),
     assert('expire operation validation', expireOperation.status === 'valid'),

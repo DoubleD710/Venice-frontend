@@ -17,6 +17,19 @@ function uniqueValues(values) {
   return Array.from(new Set(values.filter((value) => value !== undefined && value !== null && value !== '')));
 }
 
+function clonePlainObject(value) {
+  return JSON.parse(JSON.stringify(value || {}));
+}
+
+function snapshotCard(card) {
+  return card ? createMemoryCard({
+    ...card,
+    tags: [...card.tags],
+    evidence: [...card.evidence],
+    metadata: clonePlainObject(card.metadata)
+  }) : null;
+}
+
 function createSuccessResult(type, detail = {}) {
   return {
     type,
@@ -133,7 +146,7 @@ export function createMemoryRuntime() {
     }));
 
     return createSuccessResult('memory_card_result', {
-      card
+      card: snapshotCard(card)
     });
   }
 
@@ -162,18 +175,76 @@ export function createMemoryRuntime() {
     }));
 
     return createSuccessResult('memory_card_result', {
-      card: transition.card
+      card: snapshotCard(transition.card)
     });
   }
 
-  function mergeCards(primaryCardId, secondaryCardId, overrides = {}) {
+  function expireCard(cardId, expiration = {}) {
+    return transitionCard(cardId, MEMORY_LIFECYCLE_STATES.archived, {
+      expiration: {
+        expired: true,
+        ...expiration
+      }
+    });
+  }
+
+  function updateCard(cardId, updates = {}) {
+    const card = cards.get(cardId);
+
+    if (!card) {
+      return createMemoryError('Memory card was not found', {
+        cardId
+      });
+    }
+
+    const updatedCard = createMemoryCard({
+      ...card,
+      ...updates,
+      id: card.id,
+      lifecycleState: card.lifecycleState,
+      metadata: {
+        ...card.metadata,
+        ...(updates.metadata || {})
+      }
+    });
+    const validation = validateMemoryCard(updatedCard);
+
+    if (!validation.ok) {
+      return createMemoryError(validation.errors[0], {
+        card: updatedCard
+      });
+    }
+
+    cards.set(cardId, updatedCard);
+    emit(createMemoryEvent(MEMORY_EVENT_PHASES.lifecycleChanged, {
+      cardId,
+      from: card.lifecycleState,
+      to: updatedCard.lifecycleState,
+      update: true
+    }));
+
+    return createSuccessResult('memory_card_result', {
+      card: snapshotCard(updatedCard)
+    });
+  }
+
+  function mergeCards(primaryCardId, secondaryCardId, options = {}) {
     const primary = cards.get(primaryCardId);
     const secondary = cards.get(secondaryCardId);
+    const mergePolicy = options.mergePolicy || '';
 
     if (!primary || !secondary) {
       return createMemoryError('Both memory cards are required for merge', {
         primaryCardId,
         secondaryCardId
+      });
+    }
+
+    if (mergePolicy !== 'target_wins') {
+      return createMemoryError('Memory mergePolicy must be target_wins', {
+        primaryCardId,
+        secondaryCardId,
+        mergePolicy
       });
     }
 
@@ -186,18 +257,13 @@ export function createMemoryRuntime() {
 
     const mergedCard = createMemoryCard({
       ...primary,
-      confidence: Math.max(primary.confidence, secondary.confidence),
-      freshness: Math.max(primary.freshness, secondary.freshness),
-      tags: uniqueValues([...primary.tags, ...secondary.tags]),
-      evidence: uniqueValues([...primary.evidence, ...secondary.evidence]),
       metadata: {
         ...primary.metadata,
         mergedFrom: uniqueValues([
           ...(primary.metadata?.mergedFrom || []),
           secondary.id
         ])
-      },
-      ...overrides
+      }
     });
     const validation = validateMemoryCard(mergedCard);
 
@@ -223,8 +289,8 @@ export function createMemoryRuntime() {
     }));
 
     return createSuccessResult('memory_merge_result', {
-      card: mergedCard,
-      mergedCard: secondaryTransition.card || secondary
+      card: snapshotCard(mergedCard),
+      mergedCard: snapshotCard(secondaryTransition.card || secondary)
     });
   }
 
@@ -233,7 +299,42 @@ export function createMemoryRuntime() {
   }
 
   function deleteCard(cardId) {
-    return transitionCard(cardId, MEMORY_LIFECYCLE_STATES.deleted);
+    const card = cards.get(cardId);
+
+    if (!card) {
+      return createMemoryError('Memory card was not found', {
+        cardId
+      });
+    }
+
+    const transition = transitionMemoryCard(card, MEMORY_LIFECYCLE_STATES.deleted);
+
+    if (!transition.ok) {
+      return createMemoryError(transition.errors[0], {
+        card
+      });
+    }
+
+    cards.delete(cardId);
+    emit(createMemoryEvent(MEMORY_EVENT_PHASES.lifecycleChanged, {
+      cardId,
+      from: card.lifecycleState,
+      to: MEMORY_LIFECYCLE_STATES.deleted
+    }));
+
+    return createSuccessResult('memory_card_result', {
+      card: snapshotCard(transition.card)
+    });
+  }
+
+  function getCard(cardId) {
+    const card = cards.get(cardId);
+
+    return snapshotCard(card);
+  }
+
+  function listCards() {
+    return Array.from(cards.values()).map(snapshotCard);
   }
 
   function getDiagnostics() {
@@ -248,9 +349,13 @@ export function createMemoryRuntime() {
     intakeCandidate,
     acceptCandidate,
     transitionCard,
+    updateCard,
     mergeCards,
     archiveCard,
+    expireCard,
     deleteCard,
+    getCard,
+    listCards,
     onEvent,
     getDiagnostics
   };

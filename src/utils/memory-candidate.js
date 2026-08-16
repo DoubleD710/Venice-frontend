@@ -13,7 +13,13 @@ function normalizeConfidence(confidence) {
 }
 
 function normalizeEvidence(evidence = []) {
-  return Array.isArray(evidence) ? evidence : [evidence];
+  return Array.isArray(evidence) ? [...evidence] : [evidence];
+}
+
+function normalizeMetadata(metadata = {}) {
+  return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+    ? JSON.parse(JSON.stringify(metadata))
+    : {};
 }
 
 export function createMemoryCandidate({
@@ -30,7 +36,7 @@ export function createMemoryCandidate({
     category,
     confidence: normalizeConfidence(confidence),
     evidence: normalizeEvidence(evidence),
-    metadata
+    metadata: normalizeMetadata(metadata)
   };
 }
 
