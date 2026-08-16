@@ -55,6 +55,7 @@ Provider architecture is split away from UI code:
 - `memory-operation-contracts.js` and `memory-operations.js` define proposed deterministic memory state changes only; operations are validated but never executed.
 - `memory-operation-executor.js` dispatches validated memory operations into Memory Runtime. The executor does not own memory state; Memory Runtime is the only in-memory mutation authority.
 - `relationship-types.js` and `relationship-contracts.js` define inert memory relationship shapes only. There is no relationship runtime, graph, traversal, persistence, or mutation behavior yet.
+- `relationship-operation-contracts.js` and `relationship-operations.js` define inert proposals for future relationship mutations. They validate contracts and emit proposal lifecycle events without executing changes.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -82,6 +83,8 @@ This v0.1 Memory Core has no Admission wiring, Recall, Reflection, Relationship 
 
 ## Relationship Contracts
 
-Memory Card -> Relationship Contract -> future Relationship Runtime.
+Memory Card -> Relationship Contract -> Relationship Operation -> future Relationship Operation Executor -> future Relationship Runtime.
 
 Relationship Contracts define the normalized language for future links between memory cards. They are inert contract objects only: no graph exists yet, no traversal exists yet, no persistence exists yet, and no mutation occurs in this layer.
+
+Relationship Operations describe proposed `link`, `unlink`, `strengthen`, and `weaken` mutations. They are inert mutation proposals: validation is pure and state-independent, no operation is executed, and no relationship or graph state exists in this layer.
