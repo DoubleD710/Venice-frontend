@@ -121,9 +121,9 @@ Status aggregation uses explicit precedence: `rejected`, then `degraded`, then `
 
 ## Reflection Contracts
 
-Observation -> Verification -> Reflection Contract -> future Reflection Runtime -> Operation -> Deterministic Runtime.
+Observation -> Verification -> Reflection Runtime -> Reflection Proposals -> future Dispatcher.
 
-Reflection interprets verified evidence and produces inert proposals. It does not execute operations or mutate Memory or Relationships. Reflection confidence is distinct from verification confidence, and no Reflection Runtime exists yet.
+Reflection Runtime invokes an injected synchronous strategy to interpret verified evidence and produces inert, contract-valid proposals. Invalid candidates are rejected individually in their original order. The runtime does not execute proposals, call providers, or mutate Memory or Relationships.
 
 Reflection Contract -> Reflection Proposal Dispatcher -> Memory Operation Executor -> Memory Runtime.
 
