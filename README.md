@@ -137,4 +137,8 @@ Observation -> Verification -> Reflection -> Proposal -> Dispatcher -> Executor 
 
 `reasoning-core.js` is the production orchestration boundary. It receives Observation, Verification, Reflection, and Dispatcher dependencies explicitly, gates failed stages, and dispatches only accepted Reflection Proposals. It owns no domain state and performs no direct mutation.
 
+Reasoning Core runs are ordered and fail-fast, but non-transactional. Each successful domain operation commits independently. Venice does not currently provide cross-domain rollback or atomic multi-operation transactions.
+
+On partial failure, `completedProposalCount` identifies the committed prefix of `dispatchResults`; the result also identifies the failed proposal and lists later proposals that were not executed.
+
 The end-to-end Memory and Relationship paths exercise this production module with deterministic injected test components. This proves the ownership chain without model-backed reasoning, provider calls, persistence, or direct domain-state mutation.

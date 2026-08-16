@@ -141,7 +141,9 @@ function createMemoryPutOperation() {
 
 function createRelationshipLinkOperation({
   operationId = 'reasoning-relationship-link-1',
-  relationshipId = 'reasoning-relationship-1'
+  relationshipId = 'reasoning-relationship-1',
+  sourceMemoryId = 'reasoning-memory-source-1',
+  targetMemoryId = 'reasoning-memory-target-1'
 } = {}) {
   return createRelationshipOperation({
     operationId,
@@ -151,8 +153,8 @@ function createRelationshipLinkOperation({
     payload: {
       relationship: {
         relationshipId,
-        sourceMemoryId: 'reasoning-memory-source-1',
-        targetMemoryId: 'reasoning-memory-target-1',
+        sourceMemoryId,
+        targetMemoryId,
         relationshipType: RELATIONSHIP_TYPES.supports,
         confidence: 0.8,
         provenance: {
@@ -183,9 +185,9 @@ function createProposal(verification, domain, overrides = {}) {
   const proposalType = relationshipDomain
     ? REFLECTION_PROPOSAL_TYPES.relationshipLink
     : REFLECTION_PROPOSAL_TYPES.memoryPut;
-  const proposedOperation = relationshipDomain
-    ? createRelationshipLinkOperation()
-    : createMemoryPutOperation();
+  const proposedOperation = overrides.proposedOperation || (
+    relationshipDomain ? createRelationshipLinkOperation() : createMemoryPutOperation()
+  );
 
   return createReflectionProposal({
     proposalId,
@@ -202,7 +204,7 @@ function createProposal(verification, domain, overrides = {}) {
     sourceVerificationIds: [verification.verificationId],
     targetReferences: [createReflectionTargetReference({
       type: domain,
-      id: relationshipDomain ? 'reasoning-relationship-1' : 'reasoning-memory-1'
+      id: relationshipDomain ? proposedOperation.relationshipId : 'reasoning-memory-1'
     })],
     proposedOperation,
     rationale: 'Verified evidence supports this deterministic domain proposal.',
@@ -310,6 +312,71 @@ function deterministicSnapshot(path) {
   };
 }
 
+function createSequencedRelationshipOperation(index, {
+  sourceMemoryId = `reasoning-sequence-source-${index}`,
+  targetMemoryId = `reasoning-sequence-target-${index}`
+} = {}) {
+  return createRelationshipLinkOperation({
+    operationId: `reasoning-sequence-operation-${index}`,
+    relationshipId: `reasoning-sequence-relationship-${index}`,
+    sourceMemoryId,
+    targetMemoryId
+  });
+}
+
+function createSequencedRelationshipProposal(verification, operation, index) {
+  const proposalId = `reasoning-sequence-proposal-${index}`;
+
+  return createProposal(verification, 'relationship', {
+    proposalId,
+    proposedOperation: operation,
+    provenance: {
+      source: 'reasoning-core-integration-test',
+      proposalId,
+      verificationIds: [verification.verificationId],
+      observationIds: [verification.observationId],
+      operationIds: [operation.operationId]
+    }
+  });
+}
+
+function runRelationshipSequence(operations, seedOperations = []) {
+  const relationshipRuntime = createRelationshipRuntime();
+  const relationshipExecutor = createRelationshipOperationExecutor({
+    runtime: relationshipRuntime
+  });
+
+  seedOperations.forEach((operation) => {
+    relationshipExecutor.execute(operation);
+  });
+
+  const initialState = relationshipRuntime.listRelationships();
+  const core = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        reflect(verifications) {
+          return operations.map((operation, index) => (
+            createSequencedRelationshipProposal(verifications[0], operation, index)
+          ));
+        }
+      }
+    }),
+    dispatcher: createReflectionProposalDispatcher({ relationshipExecutor })
+  });
+  const result = core.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  });
+
+  return {
+    result,
+    initialState,
+    finalState: relationshipRuntime.listRelationships()
+  };
+}
+
 function createTrackedCore({ observation, verification, reflection, dispatch }) {
   const calls = {
     observation: 0,
@@ -352,6 +419,46 @@ export function runReasoningCoreIntegrationTests() {
   const memoryB = runMemoryPath();
   const relationshipA = runRelationshipPath();
   const relationshipB = runRelationshipPath();
+  const allSuccessful = runRelationshipSequence([
+    createSequencedRelationshipOperation(10),
+    createSequencedRelationshipOperation(11),
+    createSequencedRelationshipOperation(12)
+  ]);
+  const firstFailureSeed = createSequencedRelationshipOperation(90, {
+    sourceMemoryId: 'reasoning-first-failure-source',
+    targetMemoryId: 'reasoning-first-failure-target'
+  });
+  const firstFailure = runRelationshipSequence([
+    createSequencedRelationshipOperation(20, {
+      sourceMemoryId: 'reasoning-first-failure-source',
+      targetMemoryId: 'reasoning-first-failure-target'
+    }),
+    createSequencedRelationshipOperation(21)
+  ], [firstFailureSeed]);
+  const middleOperations = [
+    createSequencedRelationshipOperation(30, {
+      sourceMemoryId: 'reasoning-middle-shared-source',
+      targetMemoryId: 'reasoning-middle-shared-target'
+    }),
+    createSequencedRelationshipOperation(31, {
+      sourceMemoryId: 'reasoning-middle-shared-source',
+      targetMemoryId: 'reasoning-middle-shared-target'
+    }),
+    createSequencedRelationshipOperation(32)
+  ];
+  const middleFailure = runRelationshipSequence(middleOperations);
+  const middleFailureRepeat = runRelationshipSequence(middleOperations);
+  const finalFailure = runRelationshipSequence([
+    createSequencedRelationshipOperation(40, {
+      sourceMemoryId: 'reasoning-final-shared-source',
+      targetMemoryId: 'reasoning-final-shared-target'
+    }),
+    createSequencedRelationshipOperation(41),
+    createSequencedRelationshipOperation(42, {
+      sourceMemoryId: 'reasoning-final-shared-source',
+      targetMemoryId: 'reasoning-final-shared-target'
+    })
+  ]);
 
   const noProposalReflection = createReflectionRuntime({
     strategy: { reflect: () => [] }
@@ -514,6 +621,15 @@ export function runReasoningCoreIntegrationTests() {
     assert('relationship proposal dispatch succeeds', relationshipA.result.status === 'complete' && relationshipA.result.dispatchResults[0].domain === 'relationship'),
     assert('relationship operation executes through executor', relationshipA.result.dispatchResults[0].executorResult.success === true && relationshipA.result.dispatchResults[0].executorResult.metadata.adapterMethod === 'linkRelationship'),
     assert('relationship state reflects expected result', relationshipA.finalState.length === 1 && relationshipA.finalState[0].relationshipId === 'reasoning-relationship-1'),
+    assert('all proposals succeed in order', allSuccessful.result.status === 'complete' && allSuccessful.result.completedProposalCount === 3 && allSuccessful.result.dispatchResults.length === 3 && allSuccessful.result.unexecutedProposals.length === 0),
+    assert('first proposal failure occurs before mutation', firstFailure.result.status === 'error' && firstFailure.result.completedProposalCount === 0 && firstFailure.result.failedProposalIndex === 0 && firstFailure.result.failedProposalId === 'reasoning-sequence-proposal-0' && JSON.stringify(firstFailure.finalState) === JSON.stringify(firstFailure.initialState)),
+    assert('middle proposal failure reports partial completion', middleFailure.result.status === 'partial' && middleFailure.result.completedProposalCount === 1 && middleFailure.result.failedProposalIndex === 1 && middleFailure.result.failedProposalId === 'reasoning-sequence-proposal-1'),
+    assert('final proposal failure reports earlier commits', finalFailure.result.status === 'partial' && finalFailure.result.completedProposalCount === 2 && finalFailure.result.failedProposalIndex === 2 && finalFailure.result.failedProposalId === 'reasoning-sequence-proposal-2'),
+    assert('later proposals remain unexecuted after failure', middleFailure.result.dispatchResults.length === 2 && middleFailure.result.unexecutedProposals.length === 1 && middleFailure.result.unexecutedProposals[0].index === 2 && middleFailure.result.unexecutedProposals[0].proposalId === 'reasoning-sequence-proposal-2'),
+    assert('committed state survives partial failure', middleFailure.finalState.length === 1 && middleFailure.finalState[0].relationshipId === 'reasoning-sequence-relationship-30' && finalFailure.finalState.length === 2),
+    assert('committed result ordering is deterministic', finalFailure.result.dispatchResults.slice(0, finalFailure.result.completedProposalCount).map((result) => result.proposalId).join(',') === 'reasoning-sequence-proposal-0,reasoning-sequence-proposal-1'),
+    assert('failure metadata is deterministic', JSON.stringify({ index: middleFailure.result.failedProposalIndex, id: middleFailure.result.failedProposalId, error: middleFailure.result.normalizedError }) === JSON.stringify({ index: middleFailureRepeat.result.failedProposalIndex, id: middleFailureRepeat.result.failedProposalId, error: middleFailureRepeat.result.normalizedError })),
+    assert('identical multi-proposal runs are deterministic', JSON.stringify(middleFailure) === JSON.stringify(middleFailureRepeat)),
     assert('Observation failure gates downstream stages', observationFailure.status === 'error' && observationFailure.stage === 'observation' && observationFailureFixture.calls.observation === 1 && observationFailureFixture.calls.verification === 0 && observationFailureFixture.calls.reflection === 0 && observationFailureFixture.calls.dispatch === 0),
     assert('Verification failure gates Reflection and dispatch', verificationFailure.status === 'error' && verificationFailure.stage === 'verification' && verificationFailureFixture.calls.verification === 1 && verificationFailureFixture.calls.reflection === 0 && verificationFailureFixture.calls.dispatch === 0),
     assert('malformed Reflection proposal is rejected without dispatch', malformedReflection.status === 'rejected' && malformedReflection.dispatchResults.length === 0 && malformedReflection.reflectionResult.rejections.length === 1 && malformedRuntime.listCards().length === 0),

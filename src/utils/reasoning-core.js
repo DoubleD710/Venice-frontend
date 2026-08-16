@@ -27,6 +27,10 @@ function createResult({
   verificationResult = null,
   reflectionResult = null,
   dispatchResults = [],
+  completedProposalCount = 0,
+  failedProposalIndex = null,
+  failedProposalId = '',
+  unexecutedProposals = [],
   events = [],
   error = '',
   normalizedError = null
@@ -39,6 +43,10 @@ function createResult({
     verificationResult: cloneValue(verificationResult),
     reflectionResult: cloneValue(reflectionResult),
     dispatchResults: cloneValue(dispatchResults),
+    completedProposalCount,
+    failedProposalIndex,
+    failedProposalId,
+    unexecutedProposals: cloneValue(unexecutedProposals),
     events: cloneValue(events),
     error,
     normalizedError: cloneValue(normalizedError)
@@ -81,6 +89,15 @@ function isAsyncResult(value) {
   return value && typeof value.then === 'function';
 }
 
+function createProposalReference(proposal, index) {
+  return {
+    index,
+    proposalId: proposal.proposalId,
+    proposalType: proposal.proposalType,
+    operationId: proposal.proposedOperation.operationId
+  };
+}
+
 export function createReasoningCore({
   observationRuntime,
   verificationRuntime,
@@ -97,7 +114,11 @@ export function createReasoningCore({
       observationResult: null,
       verificationResult: null,
       reflectionResult: null,
-      dispatchResults: []
+      dispatchResults: [],
+      completedProposalCount: 0,
+      failedProposalIndex: null,
+      failedProposalId: '',
+      unexecutedProposals: []
     };
     const dependencies = [
       [observationRuntime, 'record', 'Observation Runtime'],
@@ -238,7 +259,10 @@ export function createReasoningCore({
       }));
     });
 
-    for (const proposal of results.reflectionResult.proposals) {
+    for (let proposalIndex = 0;
+      proposalIndex < results.reflectionResult.proposals.length;
+      proposalIndex += 1) {
+      const proposal = results.reflectionResult.proposals[proposalIndex];
       let dispatchResult;
 
       try {
@@ -284,6 +308,7 @@ export function createReasoningCore({
           : 'proposal_dispatch_failed',
         'dispatch',
         {
+          proposalIndex,
           proposalId: proposal.proposalId,
           operationId: proposal.proposedOperation.operationId,
           error: dispatchResult?.error || ''
@@ -291,9 +316,18 @@ export function createReasoningCore({
       ));
 
       if (dispatchResult?.status !== 'complete' || dispatchResult?.success === false) {
+        results.failedProposalIndex = proposalIndex;
+        results.failedProposalId = proposal.proposalId;
+        results.unexecutedProposals = results.reflectionResult.proposals
+          .slice(proposalIndex + 1)
+          .map((unexecutedProposal, offset) => createProposalReference(
+            unexecutedProposal,
+            proposalIndex + offset + 1
+          ));
+
         return createResult({
           ...results,
-          status: 'error',
+          status: results.completedProposalCount > 0 ? 'partial' : 'error',
           stage: 'dispatch',
           events,
           error: dispatchResult?.error || 'Proposal dispatch failed',
@@ -305,6 +339,8 @@ export function createReasoningCore({
           )
         });
       }
+
+      results.completedProposalCount += 1;
     }
 
     if (results.reflectionResult.proposals.length === 0
