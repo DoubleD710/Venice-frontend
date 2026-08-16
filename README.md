@@ -63,6 +63,7 @@ Provider architecture is split away from UI code:
 - `verification-types.js` and `verification-contracts.js` define inert verification result, check, and finding shapes. They execute no verification behavior.
 - `verification-runtime.js` executes injected checks and aggregates normalized verification results without storing history or interpreting evidence.
 - `reflection-types.js` and `reflection-contracts.js` define inert proposals that interpret verified evidence into already-valid domain operations. They execute nothing.
+- `reflection-proposal-dispatcher.js` routes validated proposals to one injected domain executor. It owns no state or domain policy.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -123,3 +124,9 @@ Status aggregation uses explicit precedence: `rejected`, then `degraded`, then `
 Observation -> Verification -> Reflection Contract -> future Reflection Runtime -> Operation -> Deterministic Runtime.
 
 Reflection interprets verified evidence and produces inert proposals. It does not execute operations or mutate Memory or Relationships. Reflection confidence is distinct from verification confidence, and no Reflection Runtime exists yet.
+
+Reflection Contract -> Reflection Proposal Dispatcher -> Memory Operation Executor -> Memory Runtime.
+
+Or: Reflection Contract -> Reflection Proposal Dispatcher -> Relationship Operation Executor -> Relationship Runtime.
+
+Reflection proposes, the dispatcher routes, domain executors validate and dispatch, and domain runtimes own state. Reflection has no direct mutation authority.
