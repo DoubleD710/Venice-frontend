@@ -54,9 +54,10 @@ Provider architecture is split away from UI code:
 - `memory-events.js`, `memory-lifecycle.js`, and `memory-runtime.js` own in-memory memory lifecycle behavior only; no storage or retrieval is implemented.
 - `memory-operation-contracts.js` and `memory-operations.js` define proposed deterministic memory state changes only; operations are validated but never executed.
 - `memory-operation-executor.js` dispatches validated memory operations into Memory Runtime. The executor does not own memory state; Memory Runtime is the only in-memory mutation authority.
-- `relationship-types.js` and `relationship-contracts.js` define inert memory relationship shapes only. There is no relationship runtime, graph, traversal, persistence, or mutation behavior yet.
+- `relationship-types.js` and `relationship-contracts.js` define inert memory relationship shapes only. They own no state or mutation behavior.
 - `relationship-operation-contracts.js` and `relationship-operations.js` define inert proposals for future relationship mutations. They validate contracts and emit proposal lifecycle events without executing changes.
 - `relationship-operation-executor.js` enforces execution preconditions and dispatches validated proposals through an injected runtime interface. It owns no relationship state.
+- `relationship-runtime.js` is the sole authority for in-memory relationship records and deterministic edge mutation. It exposes defensive snapshots and no traversal or graph-query API.
 - `tool-call-normalizer.js` parses provider tool requests without executing them.
 - `tool-contracts.js` defines normalized tool requests, lifecycle events, and results.
 - `tool-registry.js` owns the small built-in tool list.
@@ -84,10 +85,14 @@ This v0.1 Memory Core has no Admission wiring, Recall, Reflection, Relationship 
 
 ## Relationship Contracts
 
-Relationship Contract -> Relationship Operation -> Relationship Operation Executor -> future Relationship Runtime.
+Memory Card -> Relationship Contract -> Relationship Operation -> Relationship Operation Executor -> Relationship Runtime -> in-memory relationship state.
 
 Relationship Contracts define the normalized language for future links between memory cards. They are inert contract objects only: no graph exists yet, no traversal exists yet, no persistence exists yet, and no mutation occurs in this layer.
 
 Relationship Operations describe proposed `link`, `unlink`, `strengthen`, and `weaken` mutations. They are inert mutation proposals: validation is pure and state-independent, no operation is executed, and no relationship or graph state exists in this layer.
 
-The Relationship Operation Executor owns dispatch and execution-precondition enforcement only. It requires an injected execution target and owns no relationship state. Graph state does not yet exist, and traversal does not yet exist.
+The Relationship Operation Executor owns dispatch and execution-precondition enforcement only. Relationship Runtime owns edge records; Memory Runtime separately owns memory card records. Operations remain inert proposals.
+
+Linking rejects an existing relationship ID or an exact duplicate directed edge. Unlinking removes an existing relationship and rejects missing relationships. Strengthen and weaken operations saturate confidence deterministically within `0` and `1`.
+
+Relationship state is in memory only. No graph database, persistence, traversal, semantic relationship inference, or cross-runtime state ownership exists.
