@@ -135,4 +135,6 @@ Reflection proposes, the dispatcher routes, domain executors validate and dispat
 
 Observation -> Verification -> Reflection -> Proposal -> Dispatcher -> Executor -> Domain Runtime -> State.
 
-The end-to-end Memory and Relationship paths are demonstrated with deterministic injected test components. This proves the ownership chain without model-backed reasoning, provider calls, persistence, or direct domain-state mutation.
+`reasoning-core.js` is the production orchestration boundary. It receives Observation, Verification, Reflection, and Dispatcher dependencies explicitly, gates failed stages, and dispatches only accepted Reflection Proposals. It owns no domain state and performs no direct mutation.
+
+The end-to-end Memory and Relationship paths exercise this production module with deterministic injected test components. This proves the ownership chain without model-backed reasoning, provider calls, persistence, or direct domain-state mutation.

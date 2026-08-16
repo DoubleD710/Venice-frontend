@@ -16,6 +16,7 @@ import {
 } from './reflection-contracts.js';
 import { createReflectionRuntime } from './reflection-runtime.js';
 import { createReflectionProposalDispatcher } from './reflection-proposal-dispatcher.js';
+import { createReasoningCore } from './reasoning-core.js';
 import {
   createMemoryOperation,
   MEMORY_OPERATION_TYPES,
@@ -138,25 +139,6 @@ function createMemoryPutOperation() {
   });
 }
 
-function createMemoryUpdateOperation() {
-  return createMemoryOperation({
-    operationId: 'reasoning-memory-update-1',
-    idempotencyKey: 'reasoning-memory-update-effect-1',
-    operationType: MEMORY_OPERATION_TYPES.update,
-    targetMemoryIds: ['reasoning-memory-1'],
-    payload: {
-      updates: {
-        summary: 'This mismatched operation must not execute.'
-      }
-    },
-    proposalMetadata: {
-      proposedBy: 'deterministic-reflection-strategy'
-    },
-    timestamp: '2026-08-16T18:00:03.000Z',
-    validationStatus: MEMORY_OPERATION_VALIDATION_STATUS.valid
-  });
-}
-
 function createRelationshipLinkOperation({
   operationId = 'reasoning-relationship-link-1',
   relationshipId = 'reasoning-relationship-1'
@@ -239,64 +221,53 @@ function createProposal(verification, domain, overrides = {}) {
   });
 }
 
-function runVerifiedObservation() {
-  const observationInput = createDeterministicObservation();
-  const observationBefore = JSON.stringify(observationInput);
-  const observationRuntime = createObservationRuntime();
-  const observationResult = observationRuntime.record(observationInput);
-  const verificationResult = createDeterministicVerificationRuntime().verify(
-    observationResult.observation,
-    createVerificationContext()
-  );
-
-  return {
-    observationInput,
-    observationBefore,
-    observationRuntime,
-    observationResult,
-    verificationResult
-  };
-}
-
 function runMemoryPath() {
-  const verified = runVerifiedObservation();
-  const verificationBefore = JSON.stringify(verified.verificationResult);
+  const observation = createDeterministicObservation();
+  const observationBefore = JSON.stringify(observation);
+  const verificationContext = createVerificationContext();
   const memoryRuntime = createMemoryRuntime();
   const memoryExecutor = createMemoryOperationExecutor({ runtime: memoryRuntime });
+  let verificationSeenByStrategy = '';
   const reflectionRuntime = createReflectionRuntime({
     strategy: {
       reflect(verifications) {
-        return [createProposal(verifications[0], 'memory')];
+        const proposal = createProposal(verifications[0], 'memory');
+
+        verificationSeenByStrategy = JSON.stringify(verifications[0]);
+        verifications[0].metadata.strategyMutation = true;
+        return [proposal];
       }
     }
   });
-  const stateBeforeReflection = memoryRuntime.listCards();
-  const reflectionResult = reflectionRuntime.reflect([
-    verified.verificationResult.verification
-  ]);
-  const stateAfterReflection = memoryRuntime.listCards();
   const dispatcher = createReflectionProposalDispatcher({ memoryExecutor });
-  const dispatchResult = dispatcher.dispatch(reflectionResult.proposals[0]);
+  const core = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime,
+    dispatcher
+  });
+  const stateBeforeRun = memoryRuntime.listCards();
+  const result = core.run({ observation, verificationContext });
   const finalState = memoryRuntime.listCards();
 
   return {
-    ...verified,
-    verificationBefore,
+    observation,
+    observationBefore,
     memoryRuntime,
     memoryExecutor,
-    reflectionRuntime,
     dispatcher,
-    reflectionResult,
-    dispatchResult,
-    stateBeforeReflection,
-    stateAfterReflection,
+    core,
+    result,
+    verificationSeenByStrategy,
+    stateBeforeRun,
     finalState
   };
 }
 
 function runRelationshipPath() {
-  const verified = runVerifiedObservation();
-  const verificationBefore = JSON.stringify(verified.verificationResult);
+  const observation = createDeterministicObservation();
+  const observationBefore = JSON.stringify(observation);
+  const verificationContext = createVerificationContext();
   const relationshipRuntime = createRelationshipRuntime();
   const relationshipExecutor = createRelationshipOperationExecutor({
     runtime: relationshipRuntime
@@ -308,38 +279,72 @@ function runRelationshipPath() {
       }
     }
   });
-  const stateBeforeReflection = relationshipRuntime.listRelationships();
-  const reflectionResult = reflectionRuntime.reflect([
-    verified.verificationResult.verification
-  ]);
-  const stateAfterReflection = relationshipRuntime.listRelationships();
   const dispatcher = createReflectionProposalDispatcher({ relationshipExecutor });
-  const dispatchResult = dispatcher.dispatch(reflectionResult.proposals[0]);
+  const core = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime,
+    dispatcher
+  });
+  const stateBeforeRun = relationshipRuntime.listRelationships();
+  const result = core.run({ observation, verificationContext });
   const finalState = relationshipRuntime.listRelationships();
 
   return {
-    ...verified,
-    verificationBefore,
+    observation,
+    observationBefore,
     relationshipRuntime,
     relationshipExecutor,
-    reflectionRuntime,
     dispatcher,
-    reflectionResult,
-    dispatchResult,
-    stateBeforeReflection,
-    stateAfterReflection,
+    core,
+    result,
+    stateBeforeRun,
     finalState
   };
 }
 
 function deterministicSnapshot(path) {
   return {
-    observationResult: path.observationResult,
-    verificationResult: path.verificationResult,
-    reflectionResult: path.reflectionResult,
-    dispatchResult: path.dispatchResult,
+    result: path.result,
     finalState: path.finalState
   };
+}
+
+function createTrackedCore({ observation, verification, reflection, dispatch }) {
+  const calls = {
+    observation: 0,
+    verification: 0,
+    reflection: 0,
+    dispatch: 0
+  };
+  const core = createReasoningCore({
+    observationRuntime: {
+      record(input) {
+        calls.observation += 1;
+        return observation.record(input);
+      }
+    },
+    verificationRuntime: {
+      verify(input, context) {
+        calls.verification += 1;
+        return verification.verify(input, context);
+      }
+    },
+    reflectionRuntime: {
+      reflect(input, context) {
+        calls.reflection += 1;
+        return reflection.reflect(input, context);
+      }
+    },
+    dispatcher: {
+      dispatch(proposal) {
+        calls.dispatch += 1;
+        return dispatch.dispatch(proposal);
+      }
+    }
+  });
+
+  return { core, calls };
 }
 
 export function runReasoningCoreIntegrationTests() {
@@ -348,28 +353,42 @@ export function runReasoningCoreIntegrationTests() {
   const relationshipA = runRelationshipPath();
   const relationshipB = runRelationshipPath();
 
-  let failedReflectionCalls = 0;
-  const failedVerification = createVerificationRuntime({
+  const noProposalReflection = createReflectionRuntime({
+    strategy: { reflect: () => [] }
+  });
+  const noDispatch = { dispatch: () => ({ status: 'complete', success: true }) };
+  const observationFailureFixture = createTrackedCore({
+    observation: createObservationRuntime(),
+    verification: createDeterministicVerificationRuntime(),
+    reflection: noProposalReflection,
+    dispatch: noDispatch
+  });
+  const invalidObservation = createDeterministicObservation();
+  invalidObservation.observationId = '';
+  const observationFailure = observationFailureFixture.core.run({
+    observation: invalidObservation,
+    verificationContext: createVerificationContext()
+  });
+
+  const invalidVerificationRuntime = createVerificationRuntime({
     checks: [{
       id: 'invalid-check',
       name: 'invalid-check'
     }]
-  }).verify(createDeterministicObservation(), createVerificationContext());
-  const guardedReflectionRuntime = createReflectionRuntime({
-    strategy: {
-      reflect() {
-        failedReflectionCalls += 1;
-        return [];
-      }
-    }
+  });
+  const verificationFailureFixture = createTrackedCore({
+    observation: createObservationRuntime(),
+    verification: invalidVerificationRuntime,
+    reflection: noProposalReflection,
+    dispatch: noDispatch
+  });
+  const verificationFailure = verificationFailureFixture.core.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
   });
 
-  if (failedVerification.status === 'complete') {
-    guardedReflectionRuntime.reflect([failedVerification.verification]);
-  }
-
   const malformedRuntime = createMemoryRuntime();
-  const malformedReflection = createReflectionRuntime({
+  const malformedReflectionRuntime = createReflectionRuntime({
     strategy: {
       reflect(verifications) {
         const malformedProposal = createProposal(verifications[0], 'memory');
@@ -378,42 +397,102 @@ export function runReasoningCoreIntegrationTests() {
         return [malformedProposal];
       }
     }
-  }).reflect([memoryA.verificationResult.verification]);
-
-  const mismatchRuntime = createMemoryRuntime();
-  const mismatchExecutor = createMemoryOperationExecutor({ runtime: mismatchRuntime });
-  const mismatchDispatcher = createReflectionProposalDispatcher({
-    memoryExecutor: mismatchExecutor
   });
-  const mismatchedProposal = createProposal(
-    memoryA.verificationResult.verification,
-    'memory',
-    { proposedOperation: createMemoryUpdateOperation() }
-  );
-  const mismatchResult = mismatchDispatcher.dispatch(mismatchedProposal);
+  const malformedCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: malformedReflectionRuntime,
+    dispatcher: createReflectionProposalDispatcher({
+      memoryExecutor: createMemoryOperationExecutor({ runtime: malformedRuntime })
+    })
+  });
+  const malformedReflection = malformedCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  });
 
+  const reflectionFailureRuntime = createMemoryRuntime();
+  const reflectionFailureCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        reflect() {
+          throw new Error('Injected reflection failure');
+        }
+      }
+    }),
+    dispatcher: createReflectionProposalDispatcher({
+      memoryExecutor: createMemoryOperationExecutor({ runtime: reflectionFailureRuntime })
+    })
+  });
+  const reflectionFailure = reflectionFailureCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  });
+
+  const dispatcherFailureRuntime = createMemoryRuntime();
+  const dispatcherFailureCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        reflect(verifications) {
+          return [
+            createProposal(verifications[0], 'memory'),
+            createProposal(verifications[0], 'memory', {
+              proposalId: 'reasoning-memory-proposal-after-failure'
+            })
+          ];
+        }
+      }
+    }),
+    dispatcher: createReflectionProposalDispatcher()
+  });
+  const dispatcherFailure = dispatcherFailureCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  });
+
+  const failureRelationshipRuntime = createRelationshipRuntime();
+  const failureRelationshipExecutor = createRelationshipOperationExecutor({
+    runtime: failureRelationshipRuntime
+  });
+  failureRelationshipExecutor.execute(createRelationshipLinkOperation());
   const duplicateOperation = createRelationshipLinkOperation({
     operationId: 'reasoning-relationship-link-duplicate',
     relationshipId: 'reasoning-relationship-duplicate'
   });
-  const duplicateProposal = createProposal(
-    relationshipA.verificationResult.verification,
-    'relationship',
-    {
-      proposalId: 'reasoning-relationship-proposal-duplicate',
-      proposedOperation: duplicateOperation,
-      provenance: {
-        source: 'reasoning-core-integration-test',
-        proposalId: 'reasoning-relationship-proposal-duplicate',
-        verificationIds: ['reasoning-verification-1'],
-        observationIds: ['reasoning-observation-1'],
-        operationIds: [duplicateOperation.operationId]
+  const executorFailureCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        reflect(verifications) {
+          return [createProposal(verifications[0], 'relationship', {
+            proposalId: 'reasoning-relationship-proposal-duplicate',
+            proposedOperation: duplicateOperation,
+            provenance: {
+              source: 'reasoning-core-integration-test',
+              proposalId: 'reasoning-relationship-proposal-duplicate',
+              verificationIds: ['reasoning-verification-1'],
+              observationIds: ['reasoning-observation-1'],
+              operationIds: [duplicateOperation.operationId]
+            }
+          })];
+        }
       }
-    }
-  );
-  const relationshipBeforeFailure = relationshipA.relationshipRuntime.listRelationships();
-  const executorFailure = relationshipA.dispatcher.dispatch(duplicateProposal);
-  const relationshipAfterFailure = relationshipA.relationshipRuntime.listRelationships();
+    }),
+    dispatcher: createReflectionProposalDispatcher({
+      relationshipExecutor: failureRelationshipExecutor
+    })
+  });
+  const relationshipBeforeFailure = failureRelationshipRuntime.listRelationships();
+  const executorFailure = executorFailureCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  });
+  const relationshipAfterFailure = failureRelationshipRuntime.listRelationships();
 
   const memorySnapshot = memoryA.memoryRuntime.getCard('reasoning-memory-1');
   memorySnapshot.summary = 'External mutation must not enter runtime state.';
@@ -423,33 +502,36 @@ export function runReasoningCoreIntegrationTests() {
   relationshipSnapshot.confidence = 0;
 
   return [
-    assert('memory observation accepted', memoryA.observationResult.status === 'complete'),
-    assert('memory verification succeeds', memoryA.verificationResult.status === 'complete' && memoryA.verificationResult.verification.status === VERIFICATION_STATUS.verified),
-    assert('memory reflection generates valid proposal', memoryA.reflectionResult.status === 'complete' && memoryA.reflectionResult.proposals.length === 1 && memoryA.reflectionResult.rejections.length === 0),
-    assert('memory proposal dispatch succeeds', memoryA.dispatchResult.status === 'complete' && memoryA.dispatchResult.domain === 'memory'),
-    assert('memory operation executes through executor', memoryA.dispatchResult.executorResult.success === true && memoryA.memoryExecutor.getDiagnostics().executionCount === 1),
+    assert('memory observation accepted', memoryA.result.observationResult.status === 'complete'),
+    assert('memory verification succeeds', memoryA.result.verificationResult.status === 'complete' && memoryA.result.verificationResult.verification.status === VERIFICATION_STATUS.verified),
+    assert('memory reflection generates valid proposal', memoryA.result.reflectionResult.status === 'complete' && memoryA.result.reflectionResult.proposals.length === 1 && memoryA.result.reflectionResult.rejections.length === 0),
+    assert('memory proposal dispatch succeeds', memoryA.result.status === 'complete' && memoryA.result.dispatchResults[0].domain === 'memory'),
+    assert('memory operation executes through executor', memoryA.result.dispatchResults[0].executorResult.success === true && memoryA.memoryExecutor.getDiagnostics().executionCount === 1),
     assert('memory state reflects expected result', memoryA.finalState.length === 1 && memoryA.finalState[0].id === 'reasoning-memory-1'),
-    assert('relationship observation accepted', relationshipA.observationResult.status === 'complete'),
-    assert('relationship verification succeeds', relationshipA.verificationResult.status === 'complete' && relationshipA.verificationResult.verification.status === VERIFICATION_STATUS.verified),
-    assert('relationship reflection generates valid proposal', relationshipA.reflectionResult.status === 'complete' && relationshipA.reflectionResult.proposals.length === 1 && relationshipA.reflectionResult.rejections.length === 0),
-    assert('relationship proposal dispatch succeeds', relationshipA.dispatchResult.status === 'complete' && relationshipA.dispatchResult.domain === 'relationship'),
-    assert('relationship operation executes through executor', relationshipA.dispatchResult.executorResult.success === true && relationshipA.dispatchResult.executorResult.metadata.adapterMethod === 'linkRelationship'),
+    assert('relationship observation accepted', relationshipA.result.observationResult.status === 'complete'),
+    assert('relationship verification succeeds', relationshipA.result.verificationResult.status === 'complete' && relationshipA.result.verificationResult.verification.status === VERIFICATION_STATUS.verified),
+    assert('relationship reflection generates valid proposal', relationshipA.result.reflectionResult.status === 'complete' && relationshipA.result.reflectionResult.proposals.length === 1 && relationshipA.result.reflectionResult.rejections.length === 0),
+    assert('relationship proposal dispatch succeeds', relationshipA.result.status === 'complete' && relationshipA.result.dispatchResults[0].domain === 'relationship'),
+    assert('relationship operation executes through executor', relationshipA.result.dispatchResults[0].executorResult.success === true && relationshipA.result.dispatchResults[0].executorResult.metadata.adapterMethod === 'linkRelationship'),
     assert('relationship state reflects expected result', relationshipA.finalState.length === 1 && relationshipA.finalState[0].relationshipId === 'reasoning-relationship-1'),
-    assert('verification failure prevents reflection', failedVerification.status === 'error' && failedReflectionCalls === 0),
-    assert('malformed proposal produces no state mutation', malformedReflection.proposals.length === 0 && malformedReflection.rejections.length === 1 && malformedRuntime.listCards().length === 0),
-    assert('dispatcher rejects proposal operation mismatch', mismatchResult.status === 'error' && mismatchResult.error === 'Reflection proposalType requires put operation' && mismatchRuntime.listCards().length === 0),
-    assert('executor failure produces no unexpected state mutation', executorFailure.status === 'error' && JSON.stringify(relationshipAfterFailure) === JSON.stringify(relationshipBeforeFailure)),
-    assert('memory repeated run has identical proposal', JSON.stringify(memoryA.reflectionResult.proposals) === JSON.stringify(memoryB.reflectionResult.proposals)),
-    assert('relationship repeated run has identical proposal', JSON.stringify(relationshipA.reflectionResult.proposals) === JSON.stringify(relationshipB.reflectionResult.proposals)),
+    assert('Observation failure gates downstream stages', observationFailure.status === 'error' && observationFailure.stage === 'observation' && observationFailureFixture.calls.observation === 1 && observationFailureFixture.calls.verification === 0 && observationFailureFixture.calls.reflection === 0 && observationFailureFixture.calls.dispatch === 0),
+    assert('Verification failure gates Reflection and dispatch', verificationFailure.status === 'error' && verificationFailure.stage === 'verification' && verificationFailureFixture.calls.verification === 1 && verificationFailureFixture.calls.reflection === 0 && verificationFailureFixture.calls.dispatch === 0),
+    assert('malformed Reflection proposal is rejected without dispatch', malformedReflection.status === 'rejected' && malformedReflection.dispatchResults.length === 0 && malformedReflection.reflectionResult.rejections.length === 1 && malformedRuntime.listCards().length === 0),
+    assert('Reflection failure gates dispatch', reflectionFailure.status === 'error' && reflectionFailure.stage === 'reflection' && reflectionFailureRuntime.listCards().length === 0),
+    assert('Dispatcher rejection gates later proposals and leaves state unchanged', dispatcherFailure.status === 'error' && dispatcherFailure.stage === 'dispatch' && dispatcherFailure.dispatchResults.length === 1 && dispatcherFailureRuntime.listCards().length === 0),
+    assert('executor failure produces no unexpected state mutation', executorFailure.status === 'error' && executorFailure.stage === 'dispatch' && JSON.stringify(relationshipAfterFailure) === JSON.stringify(relationshipBeforeFailure)),
+    assert('memory repeated run has identical proposal', JSON.stringify(memoryA.result.reflectionResult.proposals) === JSON.stringify(memoryB.result.reflectionResult.proposals)),
+    assert('relationship repeated run has identical proposal', JSON.stringify(relationshipA.result.reflectionResult.proposals) === JSON.stringify(relationshipB.result.reflectionResult.proposals)),
     assert('memory repeated run is deterministic', JSON.stringify(deterministicSnapshot(memoryA)) === JSON.stringify(deterministicSnapshot(memoryB))),
     assert('relationship repeated run is deterministic', JSON.stringify(deterministicSnapshot(relationshipA)) === JSON.stringify(deterministicSnapshot(relationshipB))),
-    assert('operation ids are deterministic', memoryA.dispatchResult.operationId === memoryB.dispatchResult.operationId && relationshipA.dispatchResult.operationId === relationshipB.dispatchResult.operationId),
-    assert('Observation remains unchanged', JSON.stringify(memoryA.observationInput) === memoryA.observationBefore && JSON.stringify(relationshipA.observationInput) === relationshipA.observationBefore),
-    assert('Verification Result remains unchanged', JSON.stringify(memoryA.verificationResult) === memoryA.verificationBefore && JSON.stringify(relationshipA.verificationResult) === relationshipA.verificationBefore),
-    assert('Reflection Runtime does not mutate memory state', memoryA.stateBeforeReflection.length === 0 && memoryA.stateAfterReflection.length === 0),
-    assert('Reflection Runtime does not mutate relationship state', relationshipA.stateBeforeReflection.length === 0 && relationshipA.stateAfterReflection.length === 0),
+    assert('operation ids are deterministic', memoryA.result.dispatchResults[0].operationId === memoryB.result.dispatchResults[0].operationId && relationshipA.result.dispatchResults[0].operationId === relationshipB.result.dispatchResults[0].operationId),
+    assert('Observation remains unchanged', JSON.stringify(memoryA.observation) === memoryA.observationBefore && JSON.stringify(relationshipA.observation) === relationshipA.observationBefore),
+    assert('Verification Result remains isolated from strategy mutation', JSON.stringify(memoryA.result.verificationResult.verification) === memoryA.verificationSeenByStrategy),
+    assert('Reflection Runtime does not directly mutate memory state', malformedRuntime.listCards().length === 0 && reflectionFailureRuntime.listCards().length === 0),
+    assert('Reflection Runtime does not directly mutate relationship state', relationshipA.stateBeforeRun.length === 0),
     assert('Dispatcher owns no domain state', Object.keys(memoryA.dispatcher).join(',') === 'dispatch' && Object.keys(relationshipA.dispatcher).join(',') === 'dispatch'),
-    assert('executors are the mutation boundary', memoryA.stateAfterReflection.length === 0 && memoryA.finalState.length === 1 && relationshipA.stateAfterReflection.length === 0 && relationshipA.finalState.length === 1),
+    assert('Reasoning Core owns no domain state', Object.keys(memoryA.core).join(',') === 'run' && Object.keys(relationshipA.core).join(',') === 'run'),
+    assert('executors are the mutation boundary', memoryA.stateBeforeRun.length === 0 && memoryA.finalState.length === 1 && relationshipA.stateBeforeRun.length === 0 && relationshipA.finalState.length === 1),
     assert('Memory Runtime remains sole memory state owner', memoryA.memoryRuntime.getCard('reasoning-memory-1').summary === 'The user prefers deterministic local-first systems.'),
     assert('Relationship Runtime remains sole relationship state owner', relationshipA.relationshipRuntime.getRelationship('reasoning-relationship-1').confidence === 0.8)
   ];
