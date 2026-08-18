@@ -53,6 +53,25 @@ function createRuntimeResult(verificationIds, proposals, rejections) {
   };
 }
 
+function createRuntimeStopped(verificationIds) {
+  const message = 'Reflection was aborted';
+
+  return {
+    type: 'reflection_runtime_result',
+    status: 'stopped',
+    verificationIds: [...verificationIds],
+    proposals: [],
+    rejections: [],
+    error: message,
+    errorCode: 'reflection_runtime_aborted',
+    normalizedError: createNormalizedError(
+      'reflection_runtime_aborted',
+      message,
+      'abort'
+    )
+  };
+}
+
 function createProposalRejection(index, proposal, message, {
   code = 'reflection_runtime_invalid_proposal',
   category = 'contract',
@@ -171,8 +190,12 @@ function rejectProposalCandidate(candidate, index, verificationIdSet) {
   return null;
 }
 
+function isAbortError(error, signal) {
+  return signal?.aborted || error?.name === 'AbortError';
+}
+
 export function createReflectionRuntime({ strategy } = {}) {
-  function reflect(verificationInput, contextInput = {}) {
+  async function reflect(verificationInput, contextInput = {}, { signal } = {}) {
     const normalizedInput = normalizeVerificationInput(verificationInput);
 
     if (!normalizedInput.ok) {
@@ -199,14 +222,23 @@ export function createReflectionRuntime({ strategy } = {}) {
       });
     }
 
+    if (signal?.aborted) {
+      return createRuntimeStopped(normalizedInput.verificationIds);
+    }
+
     let candidates;
 
     try {
-      candidates = strategy.reflect(
+      candidates = await strategy.reflect(
         cloneValue(normalizedInput.verifications),
-        cloneValue(contextInput)
+        cloneValue(contextInput),
+        { signal }
       );
     } catch (error) {
+      if (isAbortError(error, signal)) {
+        return createRuntimeStopped(normalizedInput.verificationIds);
+      }
+
       return createRuntimeError(
         error instanceof Error ? error.message : 'Reflection strategy failed',
         {
@@ -217,12 +249,8 @@ export function createReflectionRuntime({ strategy } = {}) {
       );
     }
 
-    if (candidates && typeof candidates.then === 'function') {
-      return createRuntimeError('Asynchronous reflection strategies are not supported', {
-        code: 'reflection_runtime_async_strategy_unsupported',
-        category: 'strategy',
-        verificationIds: normalizedInput.verificationIds
-      });
+    if (signal?.aborted) {
+      return createRuntimeStopped(normalizedInput.verificationIds);
     }
 
     if (!Array.isArray(candidates)) {
@@ -237,16 +265,17 @@ export function createReflectionRuntime({ strategy } = {}) {
     const rejections = [];
     const verificationIdSet = new Set(normalizedInput.verificationIds);
 
-    candidates.forEach((candidate, index) => {
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
       const rejection = rejectProposalCandidate(candidate, index, verificationIdSet);
 
       if (rejection) {
         rejections.push(rejection);
-        return;
+        continue;
       }
 
       proposals.push(normalizeReflectionProposal(candidate));
-    });
+    }
 
     return createRuntimeResult(
       normalizedInput.verificationIds,

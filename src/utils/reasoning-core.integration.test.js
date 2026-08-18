@@ -44,6 +44,24 @@ function assert(name, condition) {
   };
 }
 
+function createAbortError() {
+  const error = new Error('Injected reasoning abort');
+
+  error.name = 'AbortError';
+  return error;
+}
+
+function createDeferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createDeterministicObservation() {
   return createObservation({
     observationId: 'reasoning-observation-1',
@@ -223,7 +241,7 @@ function createProposal(verification, domain, overrides = {}) {
   });
 }
 
-function runMemoryPath() {
+async function runMemoryPath() {
   const observation = createDeterministicObservation();
   const observationBefore = JSON.stringify(observation);
   const verificationContext = createVerificationContext();
@@ -249,7 +267,7 @@ function runMemoryPath() {
     dispatcher
   });
   const stateBeforeRun = memoryRuntime.listCards();
-  const result = core.run({ observation, verificationContext });
+  const result = await core.run({ observation, verificationContext });
   const finalState = memoryRuntime.listCards();
 
   return {
@@ -266,7 +284,7 @@ function runMemoryPath() {
   };
 }
 
-function runRelationshipPath() {
+async function runRelationshipPath() {
   const observation = createDeterministicObservation();
   const observationBefore = JSON.stringify(observation);
   const verificationContext = createVerificationContext();
@@ -289,7 +307,7 @@ function runRelationshipPath() {
     dispatcher
   });
   const stateBeforeRun = relationshipRuntime.listRelationships();
-  const result = core.run({ observation, verificationContext });
+  const result = await core.run({ observation, verificationContext });
   const finalState = relationshipRuntime.listRelationships();
 
   return {
@@ -340,7 +358,7 @@ function createSequencedRelationshipProposal(verification, operation, index) {
   });
 }
 
-function runRelationshipSequence(operations, seedOperations = []) {
+async function runRelationshipSequence(operations, seedOperations = []) {
   const relationshipRuntime = createRelationshipRuntime();
   const relationshipExecutor = createRelationshipOperationExecutor({
     runtime: relationshipRuntime
@@ -356,7 +374,7 @@ function runRelationshipSequence(operations, seedOperations = []) {
     verificationRuntime: createDeterministicVerificationRuntime(),
     reflectionRuntime: createReflectionRuntime({
       strategy: {
-        reflect(verifications) {
+        async reflect(verifications) {
           return operations.map((operation, index) => (
             createSequencedRelationshipProposal(verifications[0], operation, index)
           ));
@@ -365,7 +383,7 @@ function runRelationshipSequence(operations, seedOperations = []) {
     }),
     dispatcher: createReflectionProposalDispatcher({ relationshipExecutor })
   });
-  const result = core.run({
+  const result = await core.run({
     observation: createDeterministicObservation(),
     verificationContext: createVerificationContext()
   });
@@ -414,12 +432,12 @@ function createTrackedCore({ observation, verification, reflection, dispatch }) 
   return { core, calls };
 }
 
-export function runReasoningCoreIntegrationTests() {
-  const memoryA = runMemoryPath();
-  const memoryB = runMemoryPath();
-  const relationshipA = runRelationshipPath();
-  const relationshipB = runRelationshipPath();
-  const allSuccessful = runRelationshipSequence([
+export async function runReasoningCoreIntegrationTests() {
+  const memoryA = await runMemoryPath();
+  const memoryB = await runMemoryPath();
+  const relationshipA = await runRelationshipPath();
+  const relationshipB = await runRelationshipPath();
+  const allSuccessful = await runRelationshipSequence([
     createSequencedRelationshipOperation(10),
     createSequencedRelationshipOperation(11),
     createSequencedRelationshipOperation(12)
@@ -428,7 +446,7 @@ export function runReasoningCoreIntegrationTests() {
     sourceMemoryId: 'reasoning-first-failure-source',
     targetMemoryId: 'reasoning-first-failure-target'
   });
-  const firstFailure = runRelationshipSequence([
+  const firstFailure = await runRelationshipSequence([
     createSequencedRelationshipOperation(20, {
       sourceMemoryId: 'reasoning-first-failure-source',
       targetMemoryId: 'reasoning-first-failure-target'
@@ -446,9 +464,9 @@ export function runReasoningCoreIntegrationTests() {
     }),
     createSequencedRelationshipOperation(32)
   ];
-  const middleFailure = runRelationshipSequence(middleOperations);
-  const middleFailureRepeat = runRelationshipSequence(middleOperations);
-  const finalFailure = runRelationshipSequence([
+  const middleFailure = await runRelationshipSequence(middleOperations);
+  const middleFailureRepeat = await runRelationshipSequence(middleOperations);
+  const finalFailure = await runRelationshipSequence([
     createSequencedRelationshipOperation(40, {
       sourceMemoryId: 'reasoning-final-shared-source',
       targetMemoryId: 'reasoning-final-shared-target'
@@ -459,6 +477,110 @@ export function runReasoningCoreIntegrationTests() {
       targetMemoryId: 'reasoning-final-shared-target'
     })
   ]);
+  const deferredReflection = createDeferred();
+  const asyncRelationshipRuntime = createRelationshipRuntime();
+  const asyncRelationshipExecutor = createRelationshipOperationExecutor({
+    runtime: asyncRelationshipRuntime
+  });
+  const asyncDispatcher = createReflectionProposalDispatcher({
+    relationshipExecutor: asyncRelationshipExecutor
+  });
+  const asyncDispatchOrder = [];
+  const asyncController = new AbortController();
+  let reasoningSignal = null;
+  const asyncCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        async reflect(verifications, context, { signal }) {
+          reasoningSignal = signal;
+          const proposals = await deferredReflection.promise;
+
+          return proposals.map((operation, index) => (
+            createSequencedRelationshipProposal(verifications[0], operation, index)
+          ));
+        }
+      }
+    }),
+    dispatcher: {
+      dispatch(proposal) {
+        asyncDispatchOrder.push(proposal.proposalId);
+        return asyncDispatcher.dispatch(proposal);
+      }
+    }
+  });
+  const pendingAsyncRun = asyncCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  }, { signal: asyncController.signal });
+  const dispatchCountBeforeReflection = asyncDispatchOrder.length;
+
+  deferredReflection.resolve([
+    createSequencedRelationshipOperation(70),
+    createSequencedRelationshipOperation(71)
+  ]);
+  const asyncSuccess = await pendingAsyncRun;
+
+  let asyncFailureDispatchCalls = 0;
+  const asyncFailureCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        async reflect() {
+          throw new Error('Injected async reflection failure');
+        }
+      }
+    }),
+    dispatcher: {
+      dispatch() {
+        asyncFailureDispatchCalls += 1;
+      }
+    }
+  });
+  const asyncReflectionFailure = await asyncFailureCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  });
+
+  const abortController = new AbortController();
+  let abortDispatchCalls = 0;
+  let abortSignalSeen = null;
+  const abortCore = createReasoningCore({
+    observationRuntime: createObservationRuntime(),
+    verificationRuntime: createDeterministicVerificationRuntime(),
+    reflectionRuntime: createReflectionRuntime({
+      strategy: {
+        async reflect(verifications, context, { signal }) {
+          abortSignalSeen = signal;
+
+          return new Promise((resolve, reject) => {
+            if (signal.aborted) {
+              reject(createAbortError());
+              return;
+            }
+
+            signal.addEventListener('abort', () => {
+              reject(createAbortError());
+            }, { once: true });
+          });
+        }
+      }
+    }),
+    dispatcher: {
+      dispatch() {
+        abortDispatchCalls += 1;
+      }
+    }
+  });
+  const pendingAbortRun = abortCore.run({
+    observation: createDeterministicObservation(),
+    verificationContext: createVerificationContext()
+  }, { signal: abortController.signal });
+
+  abortController.abort();
+  const asyncReflectionAbort = await pendingAbortRun;
 
   const noProposalReflection = createReflectionRuntime({
     strategy: { reflect: () => [] }
@@ -472,7 +594,7 @@ export function runReasoningCoreIntegrationTests() {
   });
   const invalidObservation = createDeterministicObservation();
   invalidObservation.observationId = '';
-  const observationFailure = observationFailureFixture.core.run({
+  const observationFailure = await observationFailureFixture.core.run({
     observation: invalidObservation,
     verificationContext: createVerificationContext()
   });
@@ -489,7 +611,7 @@ export function runReasoningCoreIntegrationTests() {
     reflection: noProposalReflection,
     dispatch: noDispatch
   });
-  const verificationFailure = verificationFailureFixture.core.run({
+  const verificationFailure = await verificationFailureFixture.core.run({
     observation: createDeterministicObservation(),
     verificationContext: createVerificationContext()
   });
@@ -513,7 +635,7 @@ export function runReasoningCoreIntegrationTests() {
       memoryExecutor: createMemoryOperationExecutor({ runtime: malformedRuntime })
     })
   });
-  const malformedReflection = malformedCore.run({
+  const malformedReflection = await malformedCore.run({
     observation: createDeterministicObservation(),
     verificationContext: createVerificationContext()
   });
@@ -533,7 +655,7 @@ export function runReasoningCoreIntegrationTests() {
       memoryExecutor: createMemoryOperationExecutor({ runtime: reflectionFailureRuntime })
     })
   });
-  const reflectionFailure = reflectionFailureCore.run({
+  const reflectionFailure = await reflectionFailureCore.run({
     observation: createDeterministicObservation(),
     verificationContext: createVerificationContext()
   });
@@ -556,7 +678,7 @@ export function runReasoningCoreIntegrationTests() {
     }),
     dispatcher: createReflectionProposalDispatcher()
   });
-  const dispatcherFailure = dispatcherFailureCore.run({
+  const dispatcherFailure = await dispatcherFailureCore.run({
     observation: createDeterministicObservation(),
     verificationContext: createVerificationContext()
   });
@@ -595,7 +717,7 @@ export function runReasoningCoreIntegrationTests() {
     })
   });
   const relationshipBeforeFailure = failureRelationshipRuntime.listRelationships();
-  const executorFailure = executorFailureCore.run({
+  const executorFailure = await executorFailureCore.run({
     observation: createDeterministicObservation(),
     verificationContext: createVerificationContext()
   });
@@ -630,6 +752,12 @@ export function runReasoningCoreIntegrationTests() {
     assert('committed result ordering is deterministic', finalFailure.result.dispatchResults.slice(0, finalFailure.result.completedProposalCount).map((result) => result.proposalId).join(',') === 'reasoning-sequence-proposal-0,reasoning-sequence-proposal-1'),
     assert('failure metadata is deterministic', JSON.stringify({ index: middleFailure.result.failedProposalIndex, id: middleFailure.result.failedProposalId, error: middleFailure.result.normalizedError }) === JSON.stringify({ index: middleFailureRepeat.result.failedProposalIndex, id: middleFailureRepeat.result.failedProposalId, error: middleFailureRepeat.result.normalizedError })),
     assert('identical multi-proposal runs are deterministic', JSON.stringify(middleFailure) === JSON.stringify(middleFailureRepeat)),
+    assert('async Reflection succeeds before ordered dispatch', asyncSuccess.status === 'complete' && asyncSuccess.completedProposalCount === 2),
+    assert('no dispatch occurs before async Reflection completes', dispatchCountBeforeReflection === 0),
+    assert('async proposal dispatch order is deterministic', asyncDispatchOrder.join(',') === 'reasoning-sequence-proposal-0,reasoning-sequence-proposal-1' && asyncRelationshipRuntime.listRelationships().length === 2),
+    assert('Reasoning Core propagates active signal', reasoningSignal === asyncController.signal),
+    assert('async Reflection failure gates dispatch', asyncReflectionFailure.status === 'error' && asyncReflectionFailure.stage === 'reflection' && asyncFailureDispatchCalls === 0),
+    assert('async Reflection abort stops before dispatch', asyncReflectionAbort.status === 'stopped' && asyncReflectionAbort.normalizedError.code === 'reflection_runtime_aborted' && abortSignalSeen === abortController.signal && abortDispatchCalls === 0),
     assert('Observation failure gates downstream stages', observationFailure.status === 'error' && observationFailure.stage === 'observation' && observationFailureFixture.calls.observation === 1 && observationFailureFixture.calls.verification === 0 && observationFailureFixture.calls.reflection === 0 && observationFailureFixture.calls.dispatch === 0),
     assert('Verification failure gates Reflection and dispatch', verificationFailure.status === 'error' && verificationFailure.stage === 'verification' && verificationFailureFixture.calls.verification === 1 && verificationFailureFixture.calls.reflection === 0 && verificationFailureFixture.calls.dispatch === 0),
     assert('malformed Reflection proposal is rejected without dispatch', malformedReflection.status === 'rejected' && malformedReflection.dispatchResults.length === 0 && malformedReflection.reflectionResult.rejections.length === 1 && malformedRuntime.listCards().length === 0),

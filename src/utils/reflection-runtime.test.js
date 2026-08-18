@@ -166,53 +166,60 @@ function runWithCandidates(candidates, verifications = [createValidVerification(
   }).reflect(verifications, { requestId: 'reflection-request-1' });
 }
 
-export function runReflectionRuntimeTests() {
+function createAbortError() {
+  const error = new Error('Injected abort');
+
+  error.name = 'AbortError';
+  return error;
+}
+
+export async function runReflectionRuntimeTests() {
   const memoryProposal = createValidProposal();
   const relationshipProposal = createValidProposal({
     proposalId: 'proposal-2',
     proposalType: REFLECTION_PROPOSAL_TYPES.relationshipLink,
     createdAt: '2026-08-16T17:00:03.000Z'
   });
-  const single = runWithCandidates([memoryProposal]);
-  const multiple = runWithCandidates([memoryProposal, relationshipProposal]);
-  const empty = runWithCandidates([]);
+  const single = await runWithCandidates([memoryProposal]);
+  const multiple = await runWithCandidates([memoryProposal, relationshipProposal]);
+  const empty = await runWithCandidates([]);
 
-  const malformed = runWithCandidates([null, memoryProposal]);
+  const malformed = await runWithCandidates([null, memoryProposal]);
   const invalidOperationProposal = createValidProposal();
   invalidOperationProposal.proposedOperation.operationId = '';
-  const invalidOperation = runWithCandidates([invalidOperationProposal]);
+  const invalidOperation = await runWithCandidates([invalidOperationProposal]);
   const mismatchProposal = createValidProposal({
     proposedOperation: createMemoryOperation(MEMORY_OPERATION_TYPES.update)
   });
-  const mismatch = runWithCandidates([mismatchProposal]);
+  const mismatch = await runWithCandidates([mismatchProposal]);
   const missingReferenceProposal = createValidProposal({ verificationId: 'verification-missing' });
-  const missingReference = runWithCandidates([missingReferenceProposal]);
+  const missingReference = await runWithCandidates([missingReferenceProposal]);
 
-  const strategyFailure = createReflectionRuntime({
+  const strategyFailure = await createReflectionRuntime({
     strategy: {
       reflect() {
         throw new Error('Injected reflection failure');
       }
     }
   }).reflect([createValidVerification()]);
-  const malformedStrategyResult = createReflectionRuntime({
+  const malformedStrategyResult = await createReflectionRuntime({
     strategy: { reflect: () => memoryProposal }
   }).reflect([createValidVerification()]);
-  const asyncStrategy = createReflectionRuntime({
+  const asyncStrategy = await createReflectionRuntime({
     strategy: { reflect: () => Promise.resolve([]) }
   }).reflect([createValidVerification()]);
-  const missingStrategy = createReflectionRuntime().reflect([createValidVerification()]);
-  const invalidVerification = runWithCandidates([memoryProposal], [{ verificationId: '' }]);
+  const missingStrategy = await createReflectionRuntime().reflect([createValidVerification()]);
+  const invalidVerification = await runWithCandidates([memoryProposal], [{ verificationId: '' }]);
 
   const orderedProposalA = createValidProposal({ proposalId: 'proposal-a' });
   const orderedProposalB = createValidProposal({ proposalId: 'proposal-b' });
-  const ordered = runWithCandidates([orderedProposalB, null, orderedProposalA]);
+  const ordered = await runWithCandidates([orderedProposalB, null, orderedProposalA]);
 
   const explicitProposal = createValidProposal({
     proposalId: 'proposal-explicit',
     createdAt: '2026-08-16T17:30:00.000Z'
   });
-  const explicit = runWithCandidates([explicitProposal]);
+  const explicit = await runWithCandidates([explicitProposal]);
 
   const verificationInput = [createValidVerification()];
   const contextInput = {
@@ -220,7 +227,7 @@ export function runReflectionRuntimeTests() {
   };
   const verificationBefore = JSON.stringify(verificationInput);
   const contextBefore = JSON.stringify(contextInput);
-  const isolated = createReflectionRuntime({
+  const isolated = await createReflectionRuntime({
     strategy: {
       reflect(verifications, context) {
         verifications[0].metadata.mutated = true;
@@ -230,8 +237,39 @@ export function runReflectionRuntimeTests() {
     }
   }).reflect(verificationInput, contextInput);
 
-  const deterministicA = runWithCandidates([memoryProposal, relationshipProposal]);
-  const deterministicB = runWithCandidates([memoryProposal, relationshipProposal]);
+  const deterministicA = await runWithCandidates([memoryProposal, relationshipProposal]);
+  const deterministicB = await runWithCandidates([memoryProposal, relationshipProposal]);
+  const activeController = new AbortController();
+  let propagatedSignal = null;
+  const activeSignal = await createReflectionRuntime({
+    strategy: {
+      reflect(verifications, context, options) {
+        propagatedSignal = options.signal;
+        return [];
+      }
+    }
+  }).reflect([createValidVerification()], {}, { signal: activeController.signal });
+  const stoppedController = new AbortController();
+  let stoppedStrategyCalls = 0;
+
+  stoppedController.abort();
+  const alreadyStopped = await createReflectionRuntime({
+    strategy: {
+      reflect() {
+        stoppedStrategyCalls += 1;
+        return [];
+      }
+    }
+  }).reflect([createValidVerification()], {}, { signal: stoppedController.signal });
+  const duringController = new AbortController();
+  const stoppedDuringStrategy = await createReflectionRuntime({
+    strategy: {
+      async reflect() {
+        duringController.abort();
+        throw createAbortError();
+      }
+    }
+  }).reflect([createValidVerification()], {}, { signal: duringController.signal });
   const domainState = {
     memories: [],
     relationships: []
@@ -249,7 +287,7 @@ export function runReflectionRuntimeTests() {
     assert('missing evidence reference rejected', missingReference.proposals.length === 0 && missingReference.rejections[0].normalizedError.code === 'reflection_runtime_unknown_verification_reference'),
     assert('strategy failure normalized', strategyFailure.status === 'error' && strategyFailure.error === 'Injected reflection failure' && strategyFailure.normalizedError.category === 'strategy'),
     assert('malformed strategy result normalized', malformedStrategyResult.status === 'error' && malformedStrategyResult.normalizedError.code === 'reflection_runtime_malformed_strategy_result'),
-    assert('async strategy rejected', asyncStrategy.status === 'error' && asyncStrategy.normalizedError.code === 'reflection_runtime_async_strategy_unsupported'),
+    assert('sync and async strategies normalize equivalently', asyncStrategy.status === 'complete' && JSON.stringify(asyncStrategy) === JSON.stringify(empty)),
     assert('missing strategy rejected', missingStrategy.status === 'error' && missingStrategy.normalizedError.category === 'configuration'),
     assert('invalid verification rejected', invalidVerification.status === 'error' && invalidVerification.normalizedError.code === 'reflection_runtime_invalid_verification'),
     assert('proposal ordering preserved', ordered.proposals.map((proposal) => proposal.proposalId).join(',') === 'proposal-b,proposal-a'),
@@ -261,6 +299,9 @@ export function runReflectionRuntimeTests() {
     assert('context input immutable', JSON.stringify(contextInput) === contextBefore),
     assert('strategy receives isolated inputs', isolated.status === 'complete' && isolated.proposals.length === 1),
     assert('identical input and strategy are deterministic', JSON.stringify(deterministicA) === JSON.stringify(deterministicB)),
+    assert('active signal propagates to strategy', activeSignal.status === 'complete' && propagatedSignal === activeController.signal),
+    assert('already aborted signal stops before strategy', alreadyStopped.status === 'stopped' && alreadyStopped.errorCode === 'reflection_runtime_aborted' && stoppedStrategyCalls === 0),
+    assert('abort during async strategy is normalized', stoppedDuringStrategy.status === 'stopped' && stoppedDuringStrategy.normalizedError.code === 'reflection_runtime_aborted'),
     assert('no domain state mutation', JSON.stringify(domainState) === domainStateBefore),
     assert('runtime exposes reflection only', runtimeSurface.length === 1 && runtimeSurface[0] === 'reflect')
   ];

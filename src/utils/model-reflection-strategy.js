@@ -145,17 +145,13 @@ export function createModelReflectionStrategy({
   providerId = '',
   modelId = ''
 } = {}) {
-  function reflect(verifiedEvidence, context = {}) {
+  async function reflect(verifiedEvidence, context = {}, { signal } = {}) {
     if (!modelClient || typeof modelClient.generate !== 'function') {
       throw new Error('Model Reflection Strategy requires an injected model client');
     }
 
     const request = createModelReflectionRequest(verifiedEvidence, context);
-    const response = modelClient.generate(request);
-
-    if (response && typeof response.then === 'function') {
-      throw new Error('Asynchronous model clients are not supported by the current Reflection Runtime');
-    }
+    const response = await modelClient.generate(request, { signal });
 
     return parseModelReflectionResponse(response, {
       providerId,

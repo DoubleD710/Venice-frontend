@@ -79,6 +79,29 @@ function createFailure(stage, message, results, events, {
   });
 }
 
+function createStopped(stage, results, events, unexecutedProposals = []) {
+  const message = 'Reflection was aborted';
+  const normalizedError = createNormalizedError(
+    'reflection_runtime_aborted',
+    message,
+    'abort',
+    stage
+  );
+
+  return createResult({
+    ...results,
+    status: results.completedProposalCount > 0 ? 'partial' : 'stopped',
+    stage,
+    unexecutedProposals,
+    events: [
+      ...events,
+      createEvent('reasoning_stopped', stage, { error: message })
+    ],
+    error: message,
+    normalizedError
+  });
+}
+
 function validateDependency(dependency, method, label) {
   return dependency && typeof dependency[method] === 'function'
     ? ''
@@ -104,11 +127,11 @@ export function createReasoningCore({
   reflectionRuntime,
   dispatcher
 } = {}) {
-  function run({
+  async function run({
     observation,
     verificationContext = {},
     reflectionContext = {}
-  } = {}) {
+  } = {}, { signal } = {}) {
     const events = [];
     const results = {
       observationResult: null,
@@ -136,6 +159,10 @@ export function createReasoningCore({
           category: 'configuration'
         });
       }
+    }
+
+    if (signal?.aborted) {
+      return createStopped('reflection', results, events);
     }
 
     let observationInput;
@@ -219,9 +246,10 @@ export function createReasoningCore({
     }));
 
     try {
-      results.reflectionResult = reflectionRuntime.reflect(
+      results.reflectionResult = await reflectionRuntime.reflect(
         [results.verificationResult.verification],
-        reflectionInput
+        reflectionInput,
+        { signal }
       );
     } catch (error) {
       return createFailure(
@@ -232,8 +260,20 @@ export function createReasoningCore({
       );
     }
 
-    if (isAsyncResult(results.reflectionResult)) {
-      return createFailure('reflection', 'Asynchronous Reflection Runtime is not supported', results, events);
+    if (results.reflectionResult?.status === 'stopped') {
+      return createResult({
+        ...results,
+        status: 'stopped',
+        stage: 'reflection',
+        events: [
+          ...events,
+          createEvent('reasoning_stopped', 'reflection', {
+            error: results.reflectionResult.error
+          })
+        ],
+        error: results.reflectionResult.error,
+        normalizedError: results.reflectionResult.normalizedError
+      });
     }
 
     if (results.reflectionResult?.status !== 'complete'
@@ -263,6 +303,23 @@ export function createReasoningCore({
       proposalIndex < results.reflectionResult.proposals.length;
       proposalIndex += 1) {
       const proposal = results.reflectionResult.proposals[proposalIndex];
+
+      if (signal?.aborted) {
+        const unexecutedProposals = results.reflectionResult.proposals
+          .slice(proposalIndex)
+          .map((unexecutedProposal, offset) => createProposalReference(
+            unexecutedProposal,
+            proposalIndex + offset
+          ));
+
+        return createStopped(
+          'dispatch',
+          results,
+          events,
+          unexecutedProposals
+        );
+      }
+
       let dispatchResult;
 
       try {

@@ -123,7 +123,7 @@ Status aggregation uses explicit precedence: `rejected`, then `degraded`, then `
 
 Observation -> Verification -> Reflection Runtime -> Reflection Proposals -> future Dispatcher.
 
-Reflection Runtime invokes an injected synchronous strategy to interpret verified evidence and produces inert, contract-valid proposals. Invalid candidates are rejected individually in their original order. The runtime does not execute proposals, call providers, or mutate Memory or Relationships.
+Reflection Runtime invokes an injected Promise-compatible strategy to interpret verified evidence and produces inert, contract-valid proposals. Strategies may return candidates directly or through a Promise. Invalid candidates are rejected individually in their original order. The runtime does not execute proposals, call providers, or mutate Memory or Relationships.
 
 Reflection Contract -> Reflection Proposal Dispatcher -> Memory Operation Executor -> Memory Runtime.
 
@@ -158,4 +158,21 @@ Verified Evidence
 
 The model is advisory and can only return structured proposal candidates. Model output is untrusted: proposal validation is mandatory, the adapter executes no code, and deterministic runtimes remain the only authority that can mutate state. The current model strategy is an integration adapter, not a new reasoning authority.
 
-The injected model client exposes `generate(request)` and returns `{ structuredOutput, metadata? }`. `structuredOutput` must be an object or JSON string with a `proposals` array. Because the current Reflection Runtime is synchronous, `generate()` must also return synchronously. Existing fetch-based transports are not wired into this adapter yet; doing so requires a future explicit async Reflection Runtime decision.
+The injected model client exposes `generate(request, { signal })` and returns, or resolves to, `{ structuredOutput, metadata? }`. `structuredOutput` must be an object or JSON string with a `proposals` array. No fetch-based provider transport is connected in this layer.
+
+### Reflection Async Boundary Decision
+
+```text
+sync strategy
+or
+async strategy
+    -> Reflection Runtime
+```
+
+Venice uses one Promise-compatible Reflection Strategy contract. `ReflectionRuntime.reflect(verifications, context, { signal })` returns a Promise and awaits `strategy.reflect(verifications, context, { signal })`. A strategy may return proposal candidates directly or return a Promise, so deterministic synchronous strategies remain valid while model-backed strategies can use asynchronous inference. Model clients use `generate(request, { signal })` and may resolve asynchronously.
+
+Cancellation will use `AbortSignal`. An `AbortError` will normalize to a Reflection result with `status: "stopped"`, code `reflection_runtime_aborted`, no proposals, and no dispatch. Other strategy failures will retain normalized strategy errors. Proposal candidates will still be validated sequentially in returned order; asynchronous inference does not introduce concurrent proposal processing or change deterministic ordering.
+
+Reasoning Core is awaitable through `reasoningCore.run({ observation, verificationContext, reflectionContext }, { signal })` and waits for Reflection before dispatching. Its dispatch phase remains ordered, fail-fast, and non-transactional. Cancellation before dispatch commits nothing. Cancellation between independently committed proposals stops later proposals without rolling back earlier commits.
+
+This boundary keeps model inference external and asynchronous while deterministic proposal validation remains local. The model cannot mutate state, the Dispatcher stays deterministic, and Executors and domain runtimes remain authoritative. Streaming, retries, concurrency, and provider wiring remain intentionally deferred.

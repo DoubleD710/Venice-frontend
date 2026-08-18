@@ -213,45 +213,83 @@ function runStrategy(response, options = {}) {
 
   return createReflectionRuntime({ strategy }).reflect(
     [createVerifiedEvidence()],
-    { requestId: 'model-request-1' }
+    { requestId: 'model-request-1' },
+    { signal: options.signal }
   );
 }
 
-export function runModelReflectionStrategyTests() {
+function createAbortError() {
+  const error = new Error('Injected model abort');
+
+  error.name = 'AbortError';
+  return error;
+}
+
+export async function runModelReflectionStrategyTests() {
   const validProposal = createProposal();
-  const valid = runStrategy(createResponse([validProposal], {
+  const valid = await runStrategy(createResponse([validProposal], {
     requestId: 'transport-request-1'
   }));
-  const multiple = runStrategy(createResponse([
+  const multiple = await runStrategy(createResponse([
     validProposal,
     createProposal({
       proposalId: 'model-relationship-proposal-1',
       proposalType: REFLECTION_PROPOSAL_TYPES.relationshipLink
     })
   ]));
-  const malformedResponse = runStrategy(null);
-  const missingVerification = runStrategy(createResponse([
+  const malformedResponse = await runStrategy(null);
+  const missingVerification = await runStrategy(createResponse([
     createProposal({ verificationId: 'missing-verification' })
   ]));
   const invalidOperationProposal = createProposal();
   invalidOperationProposal.proposedOperation.operationId = '';
-  const invalidOperation = runStrategy(createResponse([invalidOperationProposal]));
-  const mismatch = runStrategy(createResponse([createProposal({
+  const invalidOperation = await runStrategy(createResponse([invalidOperationProposal]));
+  const mismatch = await runStrategy(createResponse([createProposal({
     proposedOperation: createMemoryOperation(MEMORY_OPERATION_TYPES.update)
   })]));
-  const malformedOutput = runStrategy({ structuredOutput: '{not-json' });
-  const clientFailure = runStrategy(null, {
+  const malformedOutput = await runStrategy({ structuredOutput: '{not-json' });
+  const clientFailure = await runStrategy(null, {
     modelClient: {
       generate() {
         throw new Error('Injected model client failure');
       }
     }
   });
-  const emptyResponse = runStrategy({ structuredOutput: '' });
-  const asyncClient = runStrategy(null, {
+  const emptyResponse = await runStrategy({ structuredOutput: '' });
+  const asyncClient = await runStrategy(null, {
     modelClient: {
-      generate() {
-        return Promise.resolve(createResponse([]));
+      async generate() {
+        return createResponse([validProposal], {
+          providerId: 'async-provider',
+          modelId: 'async-model',
+          requestId: 'async-request'
+        });
+      }
+    }
+  });
+  const malformedAsyncResponse = await runStrategy(null, {
+    modelClient: {
+      async generate() {
+        return { structuredOutput: '{invalid-json' };
+      }
+    }
+  });
+  const asyncClientFailure = await runStrategy(null, {
+    modelClient: {
+      async generate() {
+        throw new Error('Injected async model failure');
+      }
+    }
+  });
+  const abortController = new AbortController();
+  let modelSignal = null;
+  const abortedModel = await runStrategy(null, {
+    signal: abortController.signal,
+    modelClient: {
+      async generate(request, { signal }) {
+        modelSignal = signal;
+        abortController.abort();
+        throw createAbortError();
       }
     }
   });
@@ -274,7 +312,7 @@ export function runModelReflectionStrategyTests() {
       }
     }
   });
-  requestStrategy.reflect([createVerifiedEvidence()], {
+  await requestStrategy.reflect([createVerifiedEvidence()], {
     requestId: 'captured-request',
     dispatcher: {
       dispatch() {
@@ -293,13 +331,13 @@ export function runModelReflectionStrategyTests() {
   );
 
   const memoryRuntime = createMemoryRuntime();
-  const memoryReflection = runStrategy(createResponse([validProposal]));
+  const memoryReflection = await runStrategy(createResponse([validProposal]));
   const memoryDispatch = createReflectionProposalDispatcher({
     memoryExecutor: createMemoryOperationExecutor({ runtime: memoryRuntime })
   }).dispatch(memoryReflection.proposals[0]);
 
   const relationshipRuntime = createRelationshipRuntime();
-  const relationshipReflection = runStrategy(createResponse([createProposal({
+  const relationshipReflection = await runStrategy(createResponse([createProposal({
     proposalId: 'model-relationship-proposal-1',
     proposalType: REFLECTION_PROPOSAL_TYPES.relationshipLink
   })]));
@@ -317,7 +355,7 @@ export function runModelReflectionStrategyTests() {
   const isolatedMemoryRuntime = createMemoryRuntime();
   const isolatedRelationshipRuntime = createRelationshipRuntime();
 
-  runStrategy(createResponse([validProposal]));
+  await runStrategy(createResponse([validProposal]));
 
   return [
     assert('valid model response becomes valid proposal', valid.status === 'complete' && valid.proposals.length === 1 && valid.rejections.length === 0),
@@ -329,7 +367,11 @@ export function runModelReflectionStrategyTests() {
     assert('malformed structured output is normalized failure', malformedOutput.status === 'error' && malformedOutput.error === 'Model reflection structured output is not valid JSON'),
     assert('model client failure is normalized', clientFailure.status === 'error' && clientFailure.error === 'Injected model client failure'),
     assert('empty model response is normalized failure', emptyResponse.status === 'error' && emptyResponse.error === 'Model reflection response was empty'),
-    assert('async model client is rejected explicitly', asyncClient.status === 'error' && asyncClient.error === 'Asynchronous model clients are not supported by the current Reflection Runtime'),
+    assert('async model client is supported', asyncClient.status === 'complete' && asyncClient.proposals.length === 1),
+    assert('async model metadata is preserved', asyncClient.proposals[0].provenance.providerId === 'async-provider' && asyncClient.proposals[0].provenance.modelId === 'async-model' && asyncClient.proposals[0].provenance.requestId === 'async-request'),
+    assert('malformed async response is normalized', malformedAsyncResponse.status === 'error' && malformedAsyncResponse.error === 'Model reflection structured output is not valid JSON'),
+    assert('async model client failure is normalized', asyncClientFailure.status === 'error' && asyncClientFailure.error === 'Injected async model failure'),
+    assert('abort signal propagates to model client', abortedModel.status === 'stopped' && modelSignal === abortController.signal && abortedModel.errorCode === 'reflection_runtime_aborted'),
     assert('identical model output parses deterministically', JSON.stringify(deterministicA) === JSON.stringify(deterministicB)),
     assert('explicit model provenance is preserved', valid.proposals[0].provenance.providerId === 'local-model-provider' && valid.proposals[0].provenance.modelId === 'local-model-1' && valid.proposals[0].provenance.requestId === 'transport-request-1'),
     assert('request contains verified evidence only', capturedRequests.length === 1 && capturedRequests[0].verifiedEvidence[0].verificationId === 'model-verification-1' && !Object.prototype.hasOwnProperty.call(capturedRequests[0], 'observation')),
